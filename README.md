@@ -22,6 +22,8 @@ curl -L https://raw.githubusercontent.com/bqlpfy/flux-panel/refs/heads/main/pane
 ```
 
 
+PostgreSQL 是默认数据库。现有 MySQL 安装需要先进行离线迁移，普通更新会阻止直接切换。请参阅 [PostgreSQL 安装、迁移与恢复](docs/postgresql-operations.md)。
+
 #### 默认管理员账号
 
 - **账号**: admin_user

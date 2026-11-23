@@ -39,7 +39,7 @@ public class OpenApiController extends BaseController {
             return R.err("密码不能为空");
         }
 
-        User userInfo = userService.getOne(new QueryWrapper<User>().eq("user", user));
+        User userInfo = userService.getOne(new QueryWrapper<User>().apply("LOWER(username) = LOWER({0})", user));
         if (userInfo == null) {
             return R.err("鉴权失败");
         }

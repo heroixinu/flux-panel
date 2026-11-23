@@ -371,7 +371,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * @return 登录验证结果
      */
     private LoginValidationResult validateUserCredentials(LoginDto loginDto) {
-        User user = this.getOne(new QueryWrapper<User>().eq("user", loginDto.getUsername()));
+        User user = this.getOne(new QueryWrapper<User>().apply("LOWER(username) = LOWER({0})", loginDto.getUsername()));
         if (user == null) {
             return LoginValidationResult.error(ERROR_LOGIN_CREDENTIALS);
         }
@@ -406,7 +406,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * @return 验证结果响应
      */
     private R validateUsernameUniqueness(String username, Long excludeUserId) {
-        QueryWrapper<User> queryWrapper = new QueryWrapper<User>().eq("user", username);
+        QueryWrapper<User> queryWrapper = new QueryWrapper<User>().apply("LOWER(username) = LOWER({0})", username);
         if (excludeUserId != null) {
             queryWrapper.ne("id", excludeUserId);
         }

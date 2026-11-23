@@ -6,18 +6,18 @@
     <select id="getUserTunnelDetails" resultType="com.admin.common.dto.UserPackageDto$UserTunnelDetailDto">
         SELECT 
             ut.id,
-            ut.user_id as userId,
-            ut.tunnel_id as tunnelId,
-            t.name as tunnelName,
-            t.flow as tunnelFlow,
+            ut.user_id as "userId",
+            ut.tunnel_id as "tunnelId",
+            t.name as "tunnelName",
+            t.flow as "tunnelFlow",
             ut.flow,
-            ut.in_flow as inFlow,
-            ut.out_flow as outFlow,
+            ut.in_flow as "inFlow",
+            ut.out_flow as "outFlow",
             ut.num,
-            ut.flow_reset_time as flowResetTime,
-            ut.exp_time as expTime,
-            ut.speed_id as speedId,
-            sl.name as speedLimitName,
+            ut.flow_reset_time as "flowResetTime",
+            ut.exp_time as "expTime",
+            ut.speed_id as "speedId",
+            sl.name as "speedLimitName",
             sl.speed
         FROM user_tunnel ut
         LEFT JOIN tunnel t ON ut.tunnel_id = t.id
@@ -31,15 +31,15 @@
         SELECT 
             f.id,
             f.name,
-            f.tunnel_id as tunnelId,
-            t.name as tunnelName,
-            t.in_ip as inIp,
-            f.in_port as inPort,
-            f.remote_addr as remoteAddr,
-            f.in_flow as inFlow,
-            f.out_flow as outFlow,
+            f.tunnel_id as "tunnelId",
+            t.name as "tunnelName",
+            t.in_ip as "inIp",
+            f.in_port as "inPort",
+            f.remote_addr as "remoteAddr",
+            f.in_flow as "inFlow",
+            f.out_flow as "outFlow",
             f.status,
-            f.created_time as createdTime
+            f.created_time as "createdTime"
         FROM forward f
         LEFT JOIN tunnel t ON f.tunnel_id = t.id
         WHERE f.user_id = #{userId}
@@ -50,18 +50,18 @@
     <select id="getAllTunnelsForAdmin" resultType="com.admin.common.dto.UserPackageDto$UserTunnelDetailDto">
         SELECT 
             t.id,
-            0 as userId,
-            t.id as tunnelId,
-            t.name as tunnelName,
-            t.flow as tunnelFlow,
+            0 as "userId",
+            t.id as "tunnelId",
+            t.name as "tunnelName",
+            t.flow as "tunnelFlow",
             99999 as flow,
-            0 as inFlow,
-            0 as outFlow,
+            0 as "inFlow",
+            0 as "outFlow",
             99999 as num,
-            null as flowResetTime,
-            null as expTime,
-            null as speedId,
-            '无限制' as speedLimitName,
+            null as "flowResetTime",
+            null as "expTime",
+            null as "speedId",
+            '无限制' as "speedLimitName",
             null as speed
         FROM tunnel t
         WHERE t.status = 1

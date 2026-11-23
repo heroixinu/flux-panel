@@ -3,18 +3,21 @@ package com.admin.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
  * <p>
- * 
+ *
  * </p>
  *
  * @author QAQ
  * @since 2025-06-03
  */
 @Data
+@TableName("app_user")
 @EqualsAndHashCode(callSuper = true)
 public class User extends BaseEntity {
 
@@ -41,6 +44,7 @@ public class User extends BaseEntity {
      */
     private Integer status;
 
+    @TableField("username")
     private String user;
 
     private String pwd;

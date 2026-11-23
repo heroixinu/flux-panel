@@ -61,8 +61,8 @@ public class CodeGenerator {
             throw new MybatisPlusException("请设置数据库环境变量: DB_HOST, DB_NAME, DB_USER, DB_PASSWORD");
         }
         
-        dsc.setUrl("jdbc:mysql://" + dbHost + "/" + dbName + "?useUnicode=true&useSSL=false&characterEncoding=utf8&serverTimezone=Asia/Shanghai");
-        dsc.setDriverName("com.mysql.cj.jdbc.Driver");
+        dsc.setUrl("jdbc:postgresql://" + dbHost + ":" + System.getenv().getOrDefault("DB_PORT", "5432") + "/" + dbName);
+        dsc.setDriverName("org.postgresql.Driver");
         dsc.setUsername(dbUser);
         dsc.setPassword(dbPassword);
         mpg.setDataSource(dsc);
