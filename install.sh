@@ -1,6 +1,30 @@
 #!/bin/bash
+
+# 获取系统架构
+get_architecture() {
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64)
+            echo "amd64"
+            ;;
+        aarch64|arm64)
+            echo "arm64"
+            ;;
+        *)
+            echo "不支持的 CPU 架构: $ARCH" >&2
+            return 1
+            ;;
+    esac
+}
+
+# 构建下载地址
+build_download_url() {
+    local ARCH=$(get_architecture)
+    echo "https://github.com/${FLUX_REPO:-heroixinu/flux-panel}/releases/download/${FLUX_RELEASE_TAG:-1.5.0}/gost-${ARCH}"
+}
+
 # 下载地址
-DOWNLOAD_URL="https://github.com/bqlpfy/flux-panel/releases/download/1.4.2/gost"
+DOWNLOAD_URL=$(build_download_url)
 INSTALL_DIR="/etc/gost"
 COUNTRY=$(curl -s https://ipinfo.io/country)
 if [ "$COUNTRY" = "CN" ]; then
@@ -153,7 +177,7 @@ install_gost() {
 
   # 下载 gost
   echo "⬇️ 下载 gost 中..."
-  curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost"
+  curl -fL "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost"
   if [[ ! -f "$INSTALL_DIR/gost" || ! -s "$INSTALL_DIR/gost" ]]; then
     echo "❌ 下载失败，请检查网络或下载链接。"
     exit 1
@@ -237,7 +261,7 @@ update_gost() {
   
   # 先下载新版本
   echo "⬇️ 下载最新版本..."
-  curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost.new"
+  curl -fL "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost.new"
   if [[ ! -f "$INSTALL_DIR/gost.new" || ! -s "$INSTALL_DIR/gost.new" ]]; then
     echo "❌ 下载失败。"
     return 1

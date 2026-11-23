@@ -1,44 +1,34 @@
-name: Build and Push Images Based on Version
-
-# 在这里定义统一版本号
-env:
-  VERSION: "1.5.0"
+name: CI and Container Publishing
 
 on:
   push:
     branches:
       - main
+      - codex/postgresql-support
+    tags:
+      - '[0-9]*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: flux-panel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  check-version:
-    name: Check Version and Decide Build
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ env.VERSION }}
-      should_build: ${{ steps.check-tag.outputs.should_build }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0  # 获取所有历史和 tags
-
-      - name: Display version
-        run: |
-          echo "Current version: ${{ env.VERSION }}"
-
-      - name: Check if tag exists
-        id: check-tag
-        run: |
-          if git rev-parse "${{ env.VERSION }}" >/dev/null 2>&1; then
-            echo "Tag ${{ env.VERSION }} already exists, skip build"
-            echo "should_build=false" >> $GITHUB_OUTPUT
-          else
-            echo "Tag ${{ env.VERSION }} does not exist, will build all components"
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          fi
-
   test-postgres:
-    name: PostgreSQL integration tests
+    name: PostgreSQL integration and migration
     runs-on: ubuntu-latest
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: flux
+      PGPASSWORD: test-password
     services:
       mysql:
         image: mysql:8.0
@@ -68,32 +58,34 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@v3
+      - uses: actions/setup-java@v4
         with:
-          java-version: 21
           distribution: temurin
+          java-version: '21'
           cache: maven
+          cache-dependency-path: springboot-backend/pom.xml
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Verify legacy data migration
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Verify MySQL to PostgreSQL migration and rollback
         env:
           MYSQL_HOST: 127.0.0.1
-          MYSQL_PORT: 3306
+          MYSQL_PORT: '3306'
           MYSQL_USER: flux
           MYSQL_PASSWORD: test-password
           MYSQL_DATABASE: flux
-          PGHOST: 127.0.0.1
-          PGPORT: 5432
-          PGUSER: flux
-          PGPASSWORD: test-password
           PGDATABASE: flux_migration
         run: |
-          git show b83f6c0:gost.sql | docker exec -i ${{ job.services.mysql.id }} sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -u root flux'
-          docker exec -i ${{ job.services.mysql.id }} sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -u root flux' <<'SQL'
+          set -euo pipefail
+          git show b83f6c0023198de18ee9e43441a2623363219917:gost.sql | docker exec -i "${{ job.services.mysql.id }}" sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -u root flux'
+          docker exec -i "${{ job.services.mysql.id }}" sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -u root flux' <<'SQL'
           INSERT INTO node (id,name,secret,server_ip,port_sta,port_end,created_time,status) VALUES (11,'node','secret','127.0.0.1',1000,2000,1,1);
           INSERT INTO tunnel (id,name,in_node_id,in_ip,out_node_id,out_ip,type,flow,created_time,updated_time,status) VALUES (12,'tunnel',11,'::1',11,'::1',1,2,1,1,1);
           INSERT INTO forward (id,user_id,user_name,name,tunnel_id,in_port,remote_addr,created_time,updated_time,status) VALUES (13,1,'admin_user','forward',12,1234,'example',1,1,1);
@@ -106,218 +98,145 @@ jobs:
           python -m pip install -r scripts/requirements-migration.txt
           python scripts/migrate_mysql_to_postgresql.py
           test "$(psql -Atc 'SELECT count(*) FROM app_user')" = 1
-          if python scripts/migrate_mysql_to_postgresql.py; then exit 1; fi
+          test "$(psql -Atc 'SELECT count(*) FROM forward')" = 1
+          if python scripts/migrate_mysql_to_postgresql.py; then
+            echo 'ERROR: non-empty target migration was accepted'
+            exit 1
+          fi
           psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE flux_migration_fail'
           export PGDATABASE=flux_migration_fail
           psql -v ON_ERROR_STOP=1 -f gost-schema.sql
-          docker exec ${{ job.services.mysql.id }} sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; mysql -u root flux -e "ALTER TABLE vite_config ADD COLUMN unexpected_extra INT"'
-          if python scripts/migrate_mysql_to_postgresql.py; then exit 1; fi
+          docker exec "${{ job.services.mysql.id }}" sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; mysql -u root flux -e "ALTER TABLE vite_config ADD COLUMN unexpected_extra INT"'
+          if python scripts/migrate_mysql_to_postgresql.py; then
+            echo 'ERROR: mismatched source schema was accepted'
+            exit 1
+          fi
           test "$(psql -Atc 'SELECT count(*) FROM forward')" = 0
-      - name: Initialize PostgreSQL
-        env:
-          PGPASSWORD: test-password
+      - name: Initialize clean PostgreSQL database
         run: |
-          psql -h 127.0.0.1 -U flux -d flux -v ON_ERROR_STOP=1 -f gost-schema.sql
-          psql -h 127.0.0.1 -U flux -d flux -v ON_ERROR_STOP=1 -f gost.sql
+          set -euo pipefail
+          psql -d flux -v ON_ERROR_STOP=1 -f gost-schema.sql
+          psql -d flux -v ON_ERROR_STOP=1 -f gost.sql
       - name: Run backend tests
-        working-directory: ./springboot-backend
+        working-directory: springboot-backend
         env:
           DB_HOST: 127.0.0.1
-          DB_PORT: 5432
+          DB_PORT: '5432'
           DB_NAME: flux
           DB_USER: flux
           DB_PASSWORD: test-password
           JWT_SECRET: integration-test-secret-at-least-32-characters
           LOG_DIR: /tmp/flux-test-logs
-        run: mvn test
+        run: mvn -B -ntp test
+
+  test-frontend:
+    name: Verify Vite build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build frontend
+        working-directory: vite-frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
 
   build-gost:
-    name: Build & Compress GOST Binary
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
+    name: Build GOST for amd64 and arm64
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
-
-      - name: Cache Go modules
-        uses: actions/cache@v3
+          go-version: '1.23.4'
+          cache-dependency-path: go-gost/go.sum
+      - name: Compile binaries
+        working-directory: go-gost
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/gost-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../dist/gost-arm64 .
+      - uses: actions/upload-artifact@v4
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          name: gost-binaries
+          path: dist/gost-*
+          if-no-files-found: error
 
-      - name: Install UPX
-        run: |
-          wget https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-amd64_linux.tar.xz
-          tar -xf upx-4.2.1-amd64_linux.tar.xz
-          sudo mv upx-4.2.1-amd64_linux/upx /usr/local/bin/
-          rm -rf upx-4.2.1-amd64_linux*
-
-      - name: Build GOST binary
-        working-directory: ./go-gost
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gost
-
-      - name: Compress with UPX
-        working-directory: ./go-gost
-        run: |
-          upx --best --lzma gost
-
-      - name: Upload GOST artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gost-binary
-          path: ./go-gost/gost
-
-  build-vite:
-    name: Build & Push Vite Frontend
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
+  container-images:
+    name: Build ${{ matrix.image }}
+    needs: [test-postgres, test-frontend]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: flux-panel-backend
+            context: ./springboot-backend
+          - image: flux-panel-frontend
+            context: ./vite-frontend
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
-          node-version: 20
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to DockerHub
-        uses: docker/login-action@v2
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Calculate image tags
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-      - name: Build and push Vite Docker images
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          docker buildx build \
-            --platform linux/amd64 \
-            --push \
-            -t bqlpfy/vite-frontend:latest \
-            -t bqlpfy/vite-frontend:${VERSION} \
-            ./vite-frontend
-
-  build-java:
-    name: Build & Push Spring Boot Backend
-    needs: [check-version, test-postgres]
-    if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up JDK and Maven
-        uses: actions/setup-java@v3
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          flavor: latest=false
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+            type=raw,value=postgresql-support,enable=${{ github.ref == 'refs/heads/codex/postgresql-support' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Build and optionally publish
+        uses: docker/build-push-action@v6
         with:
-          java-version: 21
-          distribution: 'temurin'
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
-      - name: Cache Maven dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
-
-      - name: Build Java JAR
-        working-directory: ./springboot-backend
-        run: mvn clean package -DskipTests
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to DockerHub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-      - name: Build and push Java Docker images
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          docker buildx build \
-            --platform linux/amd64 \
-            --push \
-            -t bqlpfy/springboot-backend:latest \
-            -t bqlpfy/springboot-backend:${VERSION} \
-            ./springboot-backend
-
-  create-release:
-    name: Create Release and Tag
-    needs: [check-version, build-gost, build-vite, build-java]
-    if: needs.check-version.outputs.should_build == 'true'
+  release:
+    name: Publish release artifacts
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test-postgres, test-frontend, build-gost, container-images]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Download GOST binary
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: gost-binary
-          path: ./artifacts
-
-      - name: Create Release
+          name: gost-binaries
+          path: dist
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          
-          # 创建并推送 tag
-          git tag "${VERSION}" ${{ github.sha }}
-          git push origin "${VERSION}"
-          
-          # 创建 release
-          gh release create "${VERSION}" \
-            --title "Release ${VERSION}" \
-            --notes "Version ${VERSION}
-          
-          ## Components
-          - **GOST Binary** (Linux AMD64, compressed with UPX)
-          - **Vite Frontend** Docker Image: \`bqlpfy/vite-frontend:${VERSION}\` / \`bqlpfy/vite-frontend:latest\`
-          - **Spring Boot Backend** Docker Image: \`bqlpfy/springboot-backend:${VERSION}\` / \`bqlpfy/springboot-backend:latest\`
-          
-          ## Installation Files
-          - \`install.sh\` - GOST 客户端安装脚本
-          - \`panel_install.sh\` - 面板安装脚本
-          - \`gost-schema.sql\` - PostgreSQL 数据库结构
-          - \`gost.sql\` - 数据库初始数据
-          - \`docker-compose-v4.yml\` - Docker Compose 配置 (IPv4)
-          - \`docker-compose-v6.yml\` - Docker Compose 配置 (IPv6)
-          
-          ## Details
-          - Build date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-          - Commit: ${{ github.sha }}" \
-            --repo ${{ github.repository }}
-          
-          # 上传所有文件到 release
-          echo "📤 上传 GOST 二进制..."
-          gh release upload "${VERSION}" ./artifacts/gost --clobber
-          
-          echo "📤 上传安装脚本..."
-          gh release upload "${VERSION}" ./install.sh --clobber
-          gh release upload "${VERSION}" ./panel_install.sh --clobber
-          
-          echo "📤 上传配置文件..."
-          gh release upload "${VERSION}" ./gost.sql --clobber
-          gh release upload "${VERSION}" ./gost-schema.sql --clobber
-          gh release upload "${VERSION}" ./scripts/migrate_mysql_to_postgresql.py --clobber
-          gh release upload "${VERSION}" ./scripts/requirements-migration.txt --clobber
-          gh release upload "${VERSION}" ./docs/postgresql-operations.md --clobber
-          gh release upload "${VERSION}" ./docs/postgresql-default-migration-plan.md --clobber
-          gh release upload "${VERSION}" ./docker-compose-v4.yml --clobber
-          gh release upload "${VERSION}" ./docker-compose-v6.yml --clobber
-          
-          echo "✅ 所有文件已上传到 Release ${VERSION}"
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            dist/gost-amd64 dist/gost-arm64 \
+            install.sh panel_install.sh \
+            docker-compose-v4.yml docker-compose-v6.yml \
+            gost.sql gost-schema.sql \
+            scripts/migrate_mysql_to_postgresql.py \
+            scripts/requirements-migration.txt \
+            docs/postgresql-operations.md \
+            docs/postgresql-default-migration-plan.md \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --generate-notes --title "Flux Panel $GITHUB_REF_NAME"

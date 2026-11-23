@@ -7,22 +7,26 @@ export LC_ALL=C
 
 
 
-# 全局下载地址配置
-DOCKER_COMPOSEV4_URL="https://github.com/bqlpfy/flux-panel/releases/download/1.5.0/docker-compose-v4.yml"
-DOCKER_COMPOSEV6_URL="https://github.com/bqlpfy/flux-panel/releases/download/1.5.0/docker-compose-v6.yml"
-GOST_SQL_URL="https://github.com/bqlpfy/flux-panel/releases/download/1.5.0/gost.sql"
-GOST_SCHEMA_URL="https://github.com/bqlpfy/flux-panel/releases/download/1.5.0/gost-schema.sql"
-
-COUNTRY=$(curl -s https://ipinfo.io/country)
-if [ "$COUNTRY" = "CN" ]; then
-    # 拼接 URL
-    DOCKER_COMPOSEV4_URL="https://ghfast.top/${DOCKER_COMPOSEV4_URL}"
-    DOCKER_COMPOSEV6_URL="https://ghfast.top/${DOCKER_COMPOSEV6_URL}"
-    GOST_SQL_URL="https://ghfast.top/${GOST_SQL_URL}"
-    GOST_SCHEMA_URL="https://ghfast.top/${GOST_SCHEMA_URL}"
+# 本 Fork 的安装文件可从分支（预览）或发布标签（正式版）读取。
+FLUX_REPO="${FLUX_REPO:-heroixinu/flux-panel}"
+FLUX_SOURCE_REF="${FLUX_SOURCE_REF:-1.5.0}"
+FLUX_IMAGE_TAG="${FLUX_IMAGE_TAG:-${FLUX_SOURCE_REF##*/}}"
+if [[ ! "$FLUX_SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || ! "$FLUX_IMAGE_TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "Invalid source ref or image tag" >&2
+  exit 1
 fi
-
-
+RAW_BASE="https://raw.githubusercontent.com/${FLUX_REPO}/${FLUX_SOURCE_REF}"
+DOCKER_COMPOSEV4_URL="${RAW_BASE}/docker-compose-v4.yml"
+DOCKER_COMPOSEV6_URL="${RAW_BASE}/docker-compose-v6.yml"
+GOST_SQL_URL="${RAW_BASE}/gost.sql"
+GOST_SCHEMA_URL="${RAW_BASE}/gost-schema.sql"
+COUNTRY=$(curl -fsS --max-time 5 https://ipinfo.io/country 2>/dev/null || true)
+if [ "$COUNTRY" = "CN" ]; then
+  DOCKER_COMPOSEV4_URL="https://ghfast.top/${DOCKER_COMPOSEV4_URL}"
+  DOCKER_COMPOSEV6_URL="https://ghfast.top/${DOCKER_COMPOSEV6_URL}"
+  GOST_SQL_URL="https://ghfast.top/${GOST_SQL_URL}"
+  GOST_SCHEMA_URL="https://ghfast.top/${GOST_SCHEMA_URL}"
+fi
 
 # 根据IPv6支持情况选择docker-compose URL
 get_docker_compose_url() {
@@ -222,6 +226,7 @@ DB_PASSWORD=$DB_PASSWORD
 JWT_SECRET=$JWT_SECRET
 FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_PORT=$BACKEND_PORT
+IMAGE_TAG=$FLUX_IMAGE_TAG
 EOF
 
   echo "🚀 启动 docker 服务..."
@@ -279,10 +284,22 @@ update_panel() {
     return 1
   fi
   cp docker-compose.yml docker-compose.yml.previous
+  cp .env .env.previous
   mv "$new_compose" docker-compose.yml
-  $DOCKER_CMD pull
-  $DOCKER_CMD up -d
-  echo "✅ 更新已启动；如有异常，使用备份和 docker-compose.yml.previous 恢复。"
+  if grep -q "^IMAGE_TAG=" .env; then
+    sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=$FLUX_IMAGE_TAG/" .env
+    rm -f .env.bak
+  else
+    printf "\nIMAGE_TAG=%s\n" "$FLUX_IMAGE_TAG" >> .env
+  fi
+  if ! $DOCKER_CMD pull || ! $DOCKER_CMD up -d; then
+    echo "❌ 更新失败，恢复之前的 Compose 和环境变量。" >&2
+    cp docker-compose.yml.previous docker-compose.yml
+    cp .env.previous .env
+    $DOCKER_CMD up -d || true
+    return 1
+  fi
+  echo "✅ 更新已启动，原配置保存在 .previous 文件中。"
 }
 
 # 卸载功能

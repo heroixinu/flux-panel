@@ -21,7 +21,7 @@ services:
       retries: 10
 
   backend:
-    image: bqlpfy/springboot-backend:1.5.0
+    image: ghcr.io/heroixinu/flux-panel-backend:${IMAGE_TAG:-1.5.0}
     container_name: springboot-backend
     restart: unless-stopped
     environment:
@@ -42,14 +42,14 @@ services:
     networks:
       - gost-network
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:6365/flow/test || exit 1"]
+      test: ["CMD", "sh", "-c", "curl -fsS http://127.0.0.1:6365/flow/test >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 90s
 
   frontend:
-    image: bqlpfy/vite-frontend:1.5.0
+    image: ghcr.io/heroixinu/flux-panel-frontend:${IMAGE_TAG:-1.5.0}
     container_name: vite-frontend
     restart: unless-stopped
     ports:
