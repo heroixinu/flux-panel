@@ -112,11 +112,11 @@ jobs:
             exit 1
           fi
           test "$(psql -Atc 'SELECT count(*) FROM forward')" = 0
-      - name: Initialize clean PostgreSQL database
+      - name: Confirm schema starts empty before testing backend auto-initialization
         run: |
           set -euo pipefail
-          psql -d flux -v ON_ERROR_STOP=1 -f gost-schema.sql
-          psql -d flux -v ON_ERROR_STOP=1 -f gost.sql
+          existing="$(psql -d flux -Atqc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('forward','node','speed_limit','statistics_flow','tunnel','app_user','user_tunnel','vite_config')")"
+          test "$existing" = "0" || { echo "Expected empty schema, found $existing business tables"; exit 1; }
       - name: Run backend tests
         working-directory: springboot-backend
         env:

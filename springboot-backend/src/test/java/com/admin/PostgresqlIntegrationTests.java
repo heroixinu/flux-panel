@@ -13,6 +13,9 @@ import com.admin.service.UserService;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
+import javax.sql.DataSource;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,11 +27,44 @@ import static org.junit.jupiter.api.Assertions.*;
 @Transactional
 class PostgresqlIntegrationTests {
     @Autowired JdbcTemplate jdbc;
+    @Autowired DataSource dataSource;
     @Autowired UserService users;
     @Autowired ViteConfigMapper configs;
     @Autowired ForwardMapper forwards;
     @Autowired FlowController flows;
     @Autowired StatisticsFlowService statistics;
+
+    @Test
+    void initializesAllTablesAndDoesNotChangeExistingDataOnRestart() {
+        // CI creates the database but deliberately does NOT create the schema or seeds.
+        // Spring Boot itself must initialize the tables before it serves requests.
+        Long count = jdbc.queryForObject(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() " +
+            "AND table_name IN ('forward','node','speed_limit','statistics_flow','tunnel','app_user','user_tunnel','vite_config')",
+            Long.class
+        );
+        assertEquals(8L, count);
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM app_user WHERE username='admin_user'", Long.class));
+        assertEquals("flux", jdbc.queryForObject("SELECT value FROM vite_config WHERE name='app_name'", String.class));
+
+        jdbc.update("UPDATE vite_config SET value = 'keep-existing-value' WHERE name = 'app_name'");
+        jdbc.update("INSERT INTO vite_config (name,value,time) VALUES ('existing_custom_key','custom',1)");
+        Long usersBefore = jdbc.queryForObject("SELECT count(*) FROM app_user", Long.class);
+        Long configsBefore = jdbc.queryForObject("SELECT count(*) FROM vite_config", Long.class);
+
+        // Re-run the same SQL against an existing database. No seeded data should change.
+        ResourceDatabasePopulator populator = new ResourceDatabasePopulator(
+            new ClassPathResource("db/init/schema.sql"),
+            new ClassPathResource("db/init/data.sql")
+        );
+        populator.execute(dataSource);
+        assertEquals(usersBefore, jdbc.queryForObject("SELECT count(*) FROM app_user", Long.class));
+        assertEquals(configsBefore, jdbc.queryForObject("SELECT count(*) FROM vite_config", Long.class));
+        assertEquals("keep-existing-value", jdbc.queryForObject(
+            "SELECT value FROM vite_config WHERE name = 'app_name'", String.class));
+        assertEquals("custom", jdbc.queryForObject(
+            "SELECT value FROM vite_config WHERE name = 'existing_custom_key'", String.class));
+    }
 
     @Test
     void loginIdentityPaginationJoinAndFlowUpdates() {

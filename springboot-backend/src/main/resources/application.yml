@@ -13,6 +13,14 @@ spring:
       pool-name: HikariCP
       auto-commit: true
       connection-test-query: SELECT 1
+  # Initialize both the bundled Docker PostgreSQL and external (1Panel) databases.
+  # The scripts are idempotent and never overwrite existing users/settings.
+  sql:
+    init:
+      mode: ${DB_SQL_INIT_MODE:always}
+      continue-on-error: false
+      schema-locations: classpath:/db/init/schema.sql
+      data-locations: classpath:/db/init/data.sql
   servlet:
     multipart:
       max-file-size: 50MB

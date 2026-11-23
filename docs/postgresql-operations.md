@@ -2,6 +2,31 @@
 
 新版本默认使用 PostgreSQL 16，`gost-schema.sql` 是结构，`gost.sql` 是新安装初始数据。Compose 只在全新 `postgres_data` 卷上执行初始化；重启不会重建数据。首次登录后立即修改默认管理员密码。版本 1.5.0 的脚本和镜像必须全部发布后，安装器中的下载地址才能使用；本分支尚不代表已发布。
 
+## 1Panel 外部 PostgreSQL：自动初始化
+
+旧版初始化仅通过数据库镜像的 `/docker-entrypoint-initdb.d` 执行，不能初始化由 1Panel 管理的独立 PostgreSQL。
+此分支的后端现已在 Spring Boot 启动时运行打包在 JAR 中的 `db/init/schema.sql` 与 `db/init/data.sql`：
+幂等创建 8 张表，仅在用户表为空时创建初始管理员，仅在缺少 `app_name` 配置时添加该项。
+不会清空业务表、覆盖已有管理员密码或重置主键序列。已存在的部分表也会保留。
+
+启动初始化默认启用；当外部系统管理表结构时可配置 `DB_SQL_INIT_MODE=never` 关闭。
+初始化失败（例如没有创建表权限、已有表结构不兼容）会直接导致后端启动失败，避免继续对外提供损坏的 API。
+
+**1Panel 权限：** Flux 连接用户需要在目标数据库 `public` Schema 拥有 `USAGE, CREATE`，
+否则 PostgreSQL 15/16 默认权限可能会拒绝建表。请以管理员身份连接 `flux` 数据库执行：
+
+```sql
+GRANT USAGE, CREATE ON SCHEMA public TO flux;
+```
+
+这里的 `flux` 只是示例，实际应使用 `DB_USER`。对其他角色已经创建的表，
+还需另外授予业务表及序列的读写权限，或将所有权交给该用户。
+
+**迁移顺序：** 启动自动初始化并不等于迁移旧 MySQL 数据。若要导入含管理员 ID 的历史数据库，
+应先停掉后端、在空的 PostgreSQL 数据库执行 `gost-schema.sql` 并导入历史数据，
+然后再启动新版后端；否则默认管理员可能占用 `app_user.id=1` 导致后续导入主键冲突。
+不要将此自动初始化视为 1Panel 的 `pg_restore` 恢复功能。
+
 ## 现有 MySQL 用户
 
 普通更新会拒绝 MySQL 安装，不会自动转换或删除 `mysql_data`。不要用旧版安装器更新、直接覆盖旧 Compose、将旧 MySQL 数据卷挂载给 PostgreSQL，或在迁移目标库执行 `gost.sql`。以下流程需要维护窗口。先阅读 [迁移评估](postgresql-default-migration-plan.md) 的数据对账、停机和回滚边界。
