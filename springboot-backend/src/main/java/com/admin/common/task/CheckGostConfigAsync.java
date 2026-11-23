@@ -42,7 +42,7 @@ public class CheckGostConfigAsync {
      * 清理孤立的Gost配置项
      */
     @Async
-    public void cleanNodeConfigs(String node_id, GostConfigDto gostConfig) {
+    public void cleanNodeConfigs(Long node_id, GostConfigDto gostConfig) {
         System.out.println(JSONObject.toJSONString(gostConfig));
         Node node = nodeService.getById(node_id);
         if (node != null) {
@@ -72,7 +72,7 @@ public class CheckGostConfigAsync {
                         String type = serviceIds[3];
 
                         if (Objects.equals(type, "tcp")) { // 只处理TCP，避免重复处理
-                            Forward forward = forwardService.getById(forwardId);
+                            Forward forward = forwardService.getById(Long.valueOf(forwardId));
                             if (forward == null) {
                                 log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
                                 GostDto gostDto = GostUtil.DeleteService(node.getId(), forwardId + "_" + userId + "_" + userTunnelId);
@@ -82,7 +82,7 @@ public class CheckGostConfigAsync {
 
 
                         if (Objects.equals(type, "tls")) {
-                            Forward forward = forwardService.getById(forwardId);
+                            Forward forward = forwardService.getById(Long.valueOf(forwardId));
                             if (forward == null) {
                                 log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
                                 GostUtil.DeleteRemoteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
@@ -117,7 +117,7 @@ public class CheckGostConfigAsync {
                     String type = serviceIds[3];
                     
                     if (Objects.equals(type, "chains")) {
-                        Forward forward = forwardService.getById(forwardId);
+                        Forward forward = forwardService.getById(Long.valueOf(forwardId));
                         if (forward == null) {
                             log.info("删除孤立的链: {} (节点: {})", chain.getName(), node.getId());
                             GostUtil.DeleteChains(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
@@ -139,7 +139,7 @@ public class CheckGostConfigAsync {
 
         for (ConfigItem limiter : gostConfig.getLimiters()) {
             safeExecute(() -> {
-                SpeedLimit speedLimit = speedLimitService.getById(limiter.getName());
+                SpeedLimit speedLimit = speedLimitService.getById(Long.valueOf(limiter.getName()));
                 if (speedLimit == null) {
                     log.info("删除孤立的限流器: {} (节点: {})", limiter.getName(), node.getId());
                     GostUtil.DeleteLimiters(node.getId(), Long.parseLong(limiter.getName()));
@@ -155,12 +155,11 @@ public class CheckGostConfigAsync {
         List<Tunnel> tunnelList = tunnelService.list(new QueryWrapper<Tunnel>().eq("in_node_id", node.getId()));
         if (tunnelList == null || tunnelList.isEmpty()) return;
         safeExecute(() -> {
-            StringBuilder tunnelIds = new StringBuilder();
+            List<Long> tunnelIds = new ArrayList<>();
             for (Tunnel tunnel : tunnelList) {
-                tunnelIds.append(tunnel.getId()).append(",");
+                tunnelIds.add(tunnel.getId());
             }
-            String ids = tunnelIds.deleteCharAt(tunnelIds.length() - 1).toString();
-            List<SpeedLimit> speedLimits = speedLimitService.list(new QueryWrapper<SpeedLimit>().in("tunnel_id", ids));
+            List<SpeedLimit> speedLimits = speedLimitService.list(new QueryWrapper<SpeedLimit>().in("tunnel_id", tunnelIds));
             if (speedLimits != null && !speedLimits.isEmpty()) {
                 List<ConfigItem> limiters = gostConfig.getLimiters();
                 List<Long> limiters_ids = new ArrayList<>();

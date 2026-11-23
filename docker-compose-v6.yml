@@ -1,36 +1,31 @@
 services:
-  mysql:
-    image: mysql:5.7
-    container_name: gost-mysql
+  postgres:
+    image: postgres:16
+    container_name: gost-postgres
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       TZ: Asia/Shanghai
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./gost.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    command: >
-      --default-authentication-plugin=mysql_native_password
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --max_connections=1000
-      --innodb_buffer_pool_size=256M
+      - postgres_data:/var/lib/postgresql/data
+      - ./gost-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./gost.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     networks:
       - gost-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
       timeout: 10s
       retries: 10
 
   backend:
-    image: bqlpfy/springboot-backend:1.4.3
+    image: ghcr.io/heroixinu/flux-panel-backend:${IMAGE_TAG:-1.5.0}
     container_name: springboot-backend
     restart: unless-stopped
     environment:
-      DB_HOST: mysql
+      DB_HOST: postgres
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -42,19 +37,19 @@ services:
     volumes:
       - backend_logs:/app/logs
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     networks:
       - gost-network
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:6365/flow/test || exit 1"]
+      test: ["CMD", "sh", "-c", "curl -fsS http://127.0.0.1:6365/flow/test >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 90s
 
   frontend:
-    image: bqlpfy/vite-frontend:1.4.3
+    image: ghcr.io/heroixinu/flux-panel-frontend:${IMAGE_TAG:-1.5.0}
     container_name: vite-frontend
     restart: unless-stopped
     ports:
@@ -67,8 +62,8 @@ services:
 
 
 volumes:
-  mysql_data:
-    name: mysql_data
+  postgres_data:
+    name: postgres_data
     driver: local
   backend_logs:
     name: backend_logs

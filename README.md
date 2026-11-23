@@ -22,6 +22,21 @@
 
 
 ## 部署流程
+
+### 此 Fork 的 PostgreSQL 预览分支
+
+PostgreSQL 适配目前在 [codex/postgresql-support](https://github.com/heroixinu/flux-panel/tree/codex/postgresql-support) 验证中；**不要直接把旧 MySQL 数据目录挂载到 PostgreSQL**，升级请先阅读 [迁移说明](docs/postgresql-operations.md)。
+
+预览镜像由本仓库 GitHub Actions 构建，分别为 ghcr.io/heroixinu/flux-panel-backend:postgresql-support 和 ghcr.io/heroixinu/flux-panel-frontend:postgresql-support。仅在 CI 成功且镜像可拉取后，可在全新、隔离的环境试装：
+
+```bash
+curl -fL https://raw.githubusercontent.com/heroixinu/flux-panel/codex/postgresql-support/panel_install.sh -o panel_install.sh
+chmod +x panel_install.sh
+FLUX_SOURCE_REF=codex/postgresql-support FLUX_IMAGE_TAG=postgresql-support ./panel_install.sh
+```
+
+正式发布使用 Git 标签（例如 1.5.0），容器镜像同步发布同名标签；默认安装器使用该正式标签，标签与 Release 发布前不要用于生产。镜像托管于 GHCR，不需要 Docker Hub 密钥；首次发布需确认两个 GHCR Package 均允许公开拉取。
+
 ---
 ### Docker Compose部署
 #### 快速部署
