@@ -140,7 +140,7 @@ jobs:
       - name: Build frontend
         working-directory: vite-frontend
         run: |
-          npm install --no-audit --no-fund
+          npm install --legacy-peer-deps --no-audit --no-fund
           npm run build
 
   build-gost:
