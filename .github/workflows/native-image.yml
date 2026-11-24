@@ -77,6 +77,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
           python -m pip install 'websocket-client==1.8.0' 'cryptography>=44,<50'
+      # Use the same action and cache key as the successful standard JVM CI.
+      - name: Restore shared JVM Maven cache
+        if: matrix.runtime == 'native'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: springboot-backend/pom.xml
       - name: Install GraalVM Community JDK 21
         if: matrix.runtime == 'native'
         uses: graalvm/setup-graalvm@v1
@@ -84,19 +93,26 @@ jobs:
           java-version: '21'
           distribution: graalvm-community
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Cache Native Maven dependencies
+      - name: Restore Native Maven dependencies
         if: matrix.runtime == 'native'
-        uses: actions/cache@v4
+        id: native-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
-          key: native-maven-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('springboot-backend/pom.xml') }}
+          key: native-maven-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('springboot-backend/pom.xml') }}
           restore-keys: |
-            native-maven-${{ runner.os }}-${{ runner.arch }}-
-            setup-java-Linux-x64-maven-
+            native-maven-v2-${{ runner.os }}-${{ runner.arch }}-
       - name: Package application with Spring AOT
         if: matrix.runtime == 'native'
         working-directory: springboot-backend
         run: bash ../scripts/mvn_native_retry.sh aot-build.log -Pnative -DskipTests package
+      # Save before any runtime test can fail; dependency cache must survive red CI.
+      - name: Save resolved Native Maven dependencies
+        if: matrix.runtime == 'native' && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Run AOT JVM regression before Native compilation
         if: matrix.runtime == 'native'
         working-directory: springboot-backend
