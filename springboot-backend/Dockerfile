@@ -8,6 +8,9 @@ RUN --mount=type=cache,target=/root/.m2/repository \
 
 FROM eclipse-temurin:21-jre AS runtime-base
 WORKDIR /app
+ARG FLUX_NODE_RELEASE_TAG=sqlite-default
+ARG FLUX_NODE_RELEASE_REPO=heroixinu/flux-panel
+ENV FLUX_NODE_RELEASE_TAG=$FLUX_NODE_RELEASE_TAG FLUX_NODE_RELEASE_REPO=$FLUX_NODE_RELEASE_REPO
 ENV JAVA_OPTS="-Xms32m -Xmx192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
 ENV LANG=C.UTF-8 DB_PATH=/app/data/flux.db
 

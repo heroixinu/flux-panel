@@ -97,14 +97,18 @@ docker compose ps
 
 ### 3. 安装 GOST 节点
 
-先在管理面板创建节点，获取节点密钥，再在节点服务器执行安装脚本：
+在管理面板的「节点监控」创建节点，点击 **安装**，将生成的命令复制到 Linux AMD64 节点服务器执行。命令会自动携带面板地址和节点密钥，从本仓库的 SQLite 预览 Release 下载安装脚本及节点二进制，校验 SHA256 后安装。
+
+也可手动下载并运行交互式安装器：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/heroixinu/flux-panel/codex/sqlite-default/install.sh -o install.sh
+curl -fsSL https://github.com/heroixinu/flux-panel/releases/download/sqlite-default/install.sh -o install.sh
 chmod +x install.sh
+./install.sh
 ```
 
-安装器从本仓库的 [Releases](https://github.com/heroixinu/flux-panel/releases) 下载对应架构的节点二进制文件。请选择已发布且包含 `gost-amd64` 的兼容版本，运行 `FLUX_RELEASE_TAG=实际版本号 ./install.sh`，按提示填写面板地址及节点密钥。不要将分支名称当作 Release 标签；没有可用 Release 时，请使用 CI 构建产物或已有兼容节点。
+[SQLite 节点预览 Release](https://github.com/heroixinu/flux-panel/releases/tag/sqlite-default) 随本分支 CI 更新，不是正式版本。正式版本镜像则使用对应 Git 标签的 Release；可在后端环境变量中通过 `FLUX_NODE_RELEASE_REPO` 和 `FLUX_NODE_RELEASE_TAG` 覆盖安装命令的发布来源。请确保指定的 Release 同时包含 `install.sh`、`gost-amd64` 和 `gost-amd64.sha256`。当前仅发布 Linux AMD64 节点。
+
 
 ## 镜像与运行模式
 

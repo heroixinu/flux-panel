@@ -78,6 +78,12 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
     @Resource
     ViteConfigService viteConfigService;
 
+    @Value("${FLUX_NODE_RELEASE_REPO:heroixinu/flux-panel}")
+    private String nodeReleaseRepo;
+
+    @Value("${FLUX_NODE_RELEASE_TAG:sqlite-default}")
+    private String nodeReleaseTag;
+
 
     // ========== 公共接口实现 ==========
 
@@ -357,23 +363,15 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
      */
     private R buildInstallCommand(Node node) {
         ViteConfig viteConfig = viteConfigService.getOne(new QueryWrapper<ViteConfig>().eq("name", "ip"));
-        if (viteConfig == null) return R.err("请先前往网站配置中设置ip");
-
-        StringBuilder command = new StringBuilder();
-        
-        // 第一部分：下载安装脚本  
-        command.append("curl -L https://github.com/bqlpfy/flux-panel/releases/download/1.4.3/install.sh")
-               .append(" -o ./install.sh && chmod +x ./install.sh && ");
-        
-        // 处理服务器地址，如果是IPv6需要添加方括号
-        String processedServerAddr = processServerAddress(viteConfig.getValue());
-        
-        // 第二部分：执行安装脚本（去掉-u参数）
-        command.append("./install.sh")
-               .append(" -a ").append(processedServerAddr)  // 服务器地址
-               .append(" -s ").append(node.getSecret());    // 节点密钥
-        
-        return R.ok(command.toString());
+        if (viteConfig == null || StrUtil.isBlank(viteConfig.getValue())) {
+            return R.err("请先前往网站配置中设置ip");
+        }
+        try {
+            return R.ok(com.admin.common.utils.NodeInstallCommand.build(
+                    nodeReleaseRepo, nodeReleaseTag, processServerAddress(viteConfig.getValue()), node.getSecret()));
+        } catch (IllegalArgumentException ex) {
+            return R.err("节点安装配置无效，请检查发布仓库、版本及节点信息");
+        }
     }
 
     /**

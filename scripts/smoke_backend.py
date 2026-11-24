@@ -178,6 +178,15 @@ def main():
     secret = sql(f"SELECT secret FROM node WHERE id={nid}")
     assert secret
     assert any(item["id"] == nid for item in post("node/list", token=admin))
+    post("node/install", {"id": nid}, ordinary, expected=403)
+    post("config/update", {"ip": "[2001:db8::1]:6365"}, admin)
+    command = post("node/install", {"id": nid}, admin)
+    assert command == ("curl -fsSL https://github.com/heroixinu/flux-panel/releases/download/sqlite-default/install.sh"
+                       " -o ./install.sh && chmod +x ./install.sh && "
+                       "FLUX_REPO='heroixinu/flux-panel' FLUX_RELEASE_TAG='sqlite-default' ./install.sh"
+                       f" -a '[2001:db8::1]:6365' -s '{secret}'"), "Unexpected node installation command"
+    post("node/install", {"id": -1}, admin, expected=None)
+    print("Node installation API uses current release and quoted arguments")
 
     # Real WebSocket handshake and encrypted bidirectional GOST command exchange.
     try:

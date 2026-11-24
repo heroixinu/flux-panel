@@ -224,15 +224,39 @@ jobs:
           set -euo pipefail
           mkdir -p ../dist
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/gost-amd64 .
+      - name: Generate node checksum
+        run: (cd dist && sha256sum gost-amd64 > gost-amd64.sha256)
       - uses: actions/upload-artifact@v4
         with:
           name: gost-binaries
           path: dist/gost-*
           if-no-files-found: error
 
+  publish-preview-node:
+    name: Publish current SQLite preview node
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/sqlite-default'
+    needs: [test-postgres, test-frontend, build-gost]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: gost-binaries
+          path: dist
+      - name: Publish node installer and verified binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish_preview_node.sh
+
   container-images:
     name: Build ${{ matrix.image }}
-    needs: [test-postgres, test-frontend]
+    needs: [test-postgres, test-frontend, build-gost, publish-preview-node]
+    if: >-
+      !cancelled() && needs.test-postgres.result == 'success' &&
+      needs.test-frontend.result == 'success' && needs.build-gost.result == 'success' &&
+      (needs.publish-preview-node.result == 'success' || needs.publish-preview-node.result == 'skipped')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -281,6 +305,9 @@ jobs:
           context: ${{ matrix.context }}
           target: ${{ matrix.target }}
           platforms: linux/amd64
+          build-args: |
+            FLUX_NODE_RELEASE_REPO=${{ github.repository }}
+            FLUX_NODE_RELEASE_TAG=${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'sqlite-default' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -306,7 +333,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
-            dist/gost-amd64 \
+            dist/gost-amd64 dist/gost-amd64.sha256 \
             install.sh panel_install.sh \
             docker-compose-v4.yml docker-compose-v6.yml \
             docker-compose-postgresql-v4.yml docker-compose-postgresql-v6.yml \

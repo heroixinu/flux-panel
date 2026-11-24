@@ -8,7 +8,8 @@ get_architecture() {
             echo "amd64"
             ;;
         aarch64|arm64)
-            echo "arm64"
+            echo "当前版本仅发布 Linux AMD64 (x86_64) 节点，暂不支持 ARM64" >&2
+            return 1
             ;;
         *)
             echo "不支持的 CPU 架构: $ARCH" >&2
@@ -19,20 +20,48 @@ get_architecture() {
 
 # 构建下载地址
 build_download_url() {
-    local ARCH=$(get_architecture)
-    echo "https://github.com/${FLUX_REPO:-heroixinu/flux-panel}/releases/download/${FLUX_RELEASE_TAG:-1.5.0}/gost-${ARCH}"
+    local ARCH
+    ARCH=$(get_architecture) || return 1
+    local repo="${FLUX_REPO:-heroixinu/flux-panel}" tag="${FLUX_RELEASE_TAG:-sqlite-default}"
+    if [[ ! "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ || ! "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+        echo "无效的节点发布仓库或版本" >&2
+        return 1
+    fi
+    echo "https://github.com/$repo/releases/download/$tag/gost-${ARCH}"
 }
 
 # 下载地址
-DOWNLOAD_URL=$(build_download_url)
+DOWNLOAD_URL=$(build_download_url) || exit 1
 INSTALL_DIR="/etc/gost"
-COUNTRY=$(curl -s https://ipinfo.io/country)
+COUNTRY=$(curl -fsS --max-time 5 https://ipinfo.io/country 2>/dev/null || true)
 if [ "$COUNTRY" = "CN" ]; then
     # 拼接 URL
     DOWNLOAD_URL="https://ghfast.top/${DOWNLOAD_URL}"
 fi
 
 
+
+# Download and validate before changing the installed node or stopping its service.
+download_gost() {
+    local target="$1" temp checksum expected actual
+    temp=$(mktemp "$INSTALL_DIR/.gost-download.XXXXXXXX") || return 1
+    checksum="$temp.sha256"
+    if ! curl -fsSL --retry 2 "$DOWNLOAD_URL" -o "$temp" ||
+       ! curl -fsSL --retry 2 "$DOWNLOAD_URL.sha256" -o "$checksum"; then
+        rm -f "$temp" "$checksum"
+        echo "❌ 节点下载失败，请检查对应 Release 是否已发布。" >&2
+        return 1
+    fi
+    read -r expected _ < "$checksum"
+    actual=$(sha256sum "$temp" | awk '{print $1}')
+    if [[ ! "$expected" =~ ^[a-fA-F0-9]{64}$ || "$actual" != "$expected" || ! -s "$temp" ]]; then
+        rm -f "$temp" "$checksum"
+        echo "❌ 节点 SHA256 校验失败，请重试。" >&2
+        return 1
+    fi
+    rm -f "$checksum"
+    chmod 755 "$temp" && mv -f "$temp" "$target" || { rm -f "$temp"; return 1; }
+}
 
 # 显示菜单
 show_menu() {
@@ -163,7 +192,9 @@ install_gost() {
   check_and_install_tcpkill
   
 
-  mkdir -p "$INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR" || return 1
+  echo "⬇️ 下载并校验 GOST 节点..."
+  download_gost "$INSTALL_DIR/gost.new" || return 1
 
   # 停止并禁用已有服务
   if systemctl list-units --full -all | grep -Fq "gost.service"; then
@@ -172,17 +203,8 @@ install_gost() {
     systemctl disable gost 2>/dev/null && echo "🚫 禁用自启"
   fi
 
-  # 删除旧文件
-  [[ -f "$INSTALL_DIR/gost" ]] && echo "🧹 删除旧文件 gost" && rm -f "$INSTALL_DIR/gost"
-
-  # 下载 gost
-  echo "⬇️ 下载 gost 中..."
-  curl -fL "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost"
-  if [[ ! -f "$INSTALL_DIR/gost" || ! -s "$INSTALL_DIR/gost" ]]; then
-    echo "❌ 下载失败，请检查网络或下载链接。"
-    exit 1
-  fi
-  chmod +x "$INSTALL_DIR/gost"
+  # Replace only after the new executable has been downloaded and verified.
+  mv -f "$INSTALL_DIR/gost.new" "$INSTALL_DIR/gost" || return 1
   echo "✅ 下载完成"
 
   # 打印版本
@@ -259,13 +281,9 @@ update_gost() {
   # 检查并安装 tcpkill
   check_and_install_tcpkill
   
-  # 先下载新版本
+  # 先下载并校验新版本
   echo "⬇️ 下载最新版本..."
-  curl -fL "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost.new"
-  if [[ ! -f "$INSTALL_DIR/gost.new" || ! -s "$INSTALL_DIR/gost.new" ]]; then
-    echo "❌ 下载失败。"
-    return 1
-  fi
+  download_gost "$INSTALL_DIR/gost.new" || return 1
 
   # 停止服务
   if systemctl list-units --full -all | grep -Fq "gost.service"; then
@@ -274,7 +292,7 @@ update_gost() {
   fi
 
   # 替换文件
-  mv "$INSTALL_DIR/gost.new" "$INSTALL_DIR/gost"
+  mv -f "$INSTALL_DIR/gost.new" "$INSTALL_DIR/gost" || return 1
   chmod +x "$INSTALL_DIR/gost"
   
   # 打印版本
@@ -326,7 +344,7 @@ uninstall_gost() {
 main() {
   # 如果提供了命令行参数，直接执行安装
   if [[ -n "$SERVER_ADDR" && -n "$SECRET" ]]; then
-    install_gost
+    install_gost || exit 1
     delete_self
     exit 0
   fi
@@ -338,12 +356,12 @@ main() {
     
     case $choice in
       1)
-        install_gost
+        install_gost || exit 1
         delete_self
         exit 0
         ;;
       2)
-        update_gost
+        update_gost || exit 1
         delete_self
         exit 0
         ;;

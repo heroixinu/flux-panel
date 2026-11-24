@@ -2,6 +2,9 @@
 # CI builds on Ubuntu 24.04, so the runtime glibc matches the compiler environment.
 FROM ubuntu:24.04
 WORKDIR /app
+ARG FLUX_NODE_RELEASE_TAG=sqlite-default
+ARG FLUX_NODE_RELEASE_REPO=heroixinu/flux-panel
+ENV FLUX_NODE_RELEASE_TAG=$FLUX_NODE_RELEASE_TAG FLUX_NODE_RELEASE_REPO=$FLUX_NODE_RELEASE_REPO
 ENV LANG=C.UTF-8 TZ=Asia/Shanghai DB_PATH=/app/data/flux.db
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g sqlite3 python3 postgresql-client \
     && rm -rf /var/lib/apt/lists/*
