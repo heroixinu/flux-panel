@@ -33,7 +33,7 @@ docker build -f Dockerfile.native -t flux-backend:native .
 docker-build.yml: MySQL→PG 迁移回归、JVM 集成测试、前端构建、GOST AMD64、JVM AMD64 镜像。
 native-image.yml: JVM/Native × AMD64 的实际容器测试。两种产物使用同一套 smoke_backend.py，包括空库初始化、历史验证码关闭、密码及 JWT、普通用户权限限制、节点握手与重连、AES-GCM 双向命令、Mapper XML 查询、流量上报、统计/重置定时任务、重启数据保留。
 
-Native 编译前先以 Spring AOT 模式在独立的 flux_aot 测试数据库运行同一套业务 smoke 测试；若 Mapper 装配或 AOT 运行失败，不进入 GraalVM 编译。MapperScan 显式引用 sqlSessionTemplate，避免 Native 运行时丢失隐式依赖注入。
+Native 编译前先以 Spring AOT 模式在独立的 flux_aot 测试数据库运行同一套业务 smoke 测试；若 Mapper 装配或 AOT 运行失败，不进入 GraalVM 编译。MapperScan 显式引用 sqlSessionTemplate，避免 Native 运行时丢失隐式依赖注入。WebSocketServer 使用具体类型的组件和构造器注入，WebSocketConfig 注册已初始化的 handler 实例，避免接口返回类型隐藏资源注入点。
 
 所有 smoke 检查只应在隔离的 PostgreSQL 测试库运行。CI 容器统一 512MiB 内存、2 CPU、不使用 swap；报告包含冷启动到 HTTP ready 时间、重启 ready、空闲 cgroup memory.current、进程 RSS、负载后与峰值内存。测试报告是 GitHub Actions artifact，不应把构建成功或估算值当作实测。
 

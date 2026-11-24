@@ -14,7 +14,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import jakarta.annotation.Resource;
+import org.springframework.stereotype.Component;
 import java.util.Objects;
 import java.util.Map;
 import java.util.LinkedHashMap;
@@ -27,10 +27,14 @@ import java.util.UUID;
 
 
 @Slf4j
+@Component("myHandler")
 public class WebSocketServer extends TextWebSocketHandler {
 
-    @Resource
-    NodeService nodeService;
+    private final NodeService nodeService;
+
+    public WebSocketServer(NodeService nodeService) {
+        this.nodeService = Objects.requireNonNull(nodeService, "nodeService");
+    }
 
     // 存储所有活跃的 WebSocket 连接（
     private static final CopyOnWriteArraySet<WebSocketSession> activeSessions = new CopyOnWriteArraySet<>();
