@@ -9,6 +9,7 @@ import { siteConfig } from '@/config/site';
 import { title } from "@/components/primitives";
 import DefaultLayout from "@/layouts/default";
 import { login, LoginData } from "@/api";
+import { modes, passkeyLogin, supported, Modes } from "@/utils/passkey";
 
 
 interface LoginForm {
@@ -24,6 +25,20 @@ export default function IndexPage() {
     password: "",
   });
   const [loading, setLoading] = useState(false);
+  const [loginModes, setLoginModes] = useState<Modes>();
+  useEffect(() => { modes().then(setLoginModes).catch(() => toast.error('无法读取登录方式，请刷新重试')); }, []);
+  const handlePasskey = async () => {
+    setLoading(true);
+    try {
+      const data = await passkeyLogin();
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('role_id', String(data.role_id));
+      localStorage.setItem('name', data.name);
+      localStorage.setItem('admin', String(data.role_id === 0));
+      navigate('/dashboard');
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Passkey 登录失败'); }
+    finally { setLoading(false); }
+  };
   const [errors, setErrors] = useState<Partial<LoginForm>>({});
   const navigate = useNavigate();
   const [isWebView, setIsWebView] = useState(false);
@@ -106,7 +121,7 @@ export default function IndexPage() {
   };
 
   const handleLogin = async () => {
-    if (!validateForm()) return;
+    if (!loginModes?.passwordEnabled || !validateForm()) return;
 
     setLoading(true);
 
@@ -127,10 +142,11 @@ export default function IndexPage() {
           <Card className="w-full">
             <CardHeader className="pb-0 pt-6 px-6 flex-col items-center">
               <h1 className={title({ size: "sm" })}>登陆</h1>
-              <p className="text-small text-default-500 mt-2">请输入您的账号信息</p>
+              <p className="text-small text-default-500 mt-2">请选择登录方式</p>
             </CardHeader>
             <CardBody className="px-6 py-6">
               <div className="flex flex-col gap-4">
+                {loginModes?.passwordEnabled && <>
                 <Input
                   label="用户名"
                   placeholder="请输入用户名"
@@ -166,6 +182,10 @@ export default function IndexPage() {
                 >
                   {loading ? "登录中..." : "登录"}
                 </Button>
+                </>}
+                {loginModes?.passkeyEnabled && <Button color="primary" variant={loginModes.passwordEnabled ? "bordered" : "solid"} size="lg" isDisabled={loading || !supported()} onPress={handlePasskey}>使用 Passkey 登录</Button>}
+                {loginModes?.passkeyEnabled && !supported() && <p className="text-small">请使用支持 Passkey 的 HTTPS 浏览器。</p>}
+                {!loginModes && <p>正在读取登录方式...</p>}
               </div>
             </CardBody>
           </Card>

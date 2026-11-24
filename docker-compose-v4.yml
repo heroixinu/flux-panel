@@ -11,6 +11,9 @@ services:
       DB_IMPORT_FILE: ${DB_IMPORT_FILE:-}
       DB_IMPORT_MAX_BYTES: ${DB_IMPORT_MAX_BYTES:-1073741824}
       JWT_SECRET: ${JWT_SECRET}
+      PASSKEY_ENABLED: ${PASSKEY_ENABLED:-false}
+      PASSKEY_ORIGIN: ${PASSKEY_ORIGIN:-}
+      PASSKEY_RECOVERY_PASSWORD_LOGIN: ${PASSKEY_RECOVERY_PASSWORD_LOGIN:-false}
       LOG_DIR: /app/logs
       JAVA_OPTS: "-Xms32m -Xmx192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
     ports:

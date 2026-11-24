@@ -163,6 +163,7 @@ export default function ProfilePage() {
     <div className="px-3 lg:px-6 py-8 flex flex-col h-full">
 
       <div className="space-y-6 flex-1">
+        <Button variant="bordered" onPress={() => navigate("/passkeys")}>Passkey 与登录安全</Button>
         {/* 用户信息卡片 */}
         <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
           <CardBody className="p-4">

@@ -355,6 +355,7 @@ export default function AdminLayout({
                  </Button>
                </DropdownTrigger>
               <DropdownMenu aria-label="用户菜单">
+                <DropdownItem key="passkeys" onPress={() => navigate("/passkeys")}>Passkey 与登录安全</DropdownItem>
                 <DropdownItem
                   key="change-password"
                   startContent={

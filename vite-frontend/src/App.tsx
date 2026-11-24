@@ -9,6 +9,7 @@ import TunnelPage from "@/pages/tunnel";
 import NodePage from "@/pages/node";
 import UserPage from "@/pages/user";
 import ProfilePage from "@/pages/profile";
+import PasskeysPage from "@/pages/passkeys";
 import LimitPage from "@/pages/limit";
 import ConfigPage from "@/pages/config";
 import { SettingsPage } from "@/pages/settings";
@@ -149,6 +150,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LoginRoute />} />
+      <Route path="/passkeys" element={<ProtectedRoute useSimpleLayout={true}><PasskeysPage /></ProtectedRoute>} />
       <Route 
         path="/change-password" 
         element={
