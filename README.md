@@ -25,7 +25,7 @@
 
 ### 此 Fork 的 SQLite + GraalVM Native 预览分支
 
-新安装默认使用内置 SQLite，无需独立数据库容器；已部署的 PostgreSQL 不会自动切换。仅在本分支 JVM / Native CI 全部通过、镜像可拉取后试用。详见 [SQLite 运行、升级、备份及迁移说明](docs/sqlite-operations.md)。
+新安装默认使用内置 SQLite，无需独立数据库容器；已部署的 PostgreSQL 不会自动切换。新部署可将 MySQL / PostgreSQL 备份放入 ./import，并设置 DB_IMPORT_ENABLED=true 在后端启动前自动导入（支持 gzip、mysqldump、pg_dump 文本和 PGDMP 自定义归档）；不会覆盖现有 SQLite。仅在本分支 JVM / Native CI 全部通过、镜像可拉取后试用。详见 [SQLite 运行、升级、备份及迁移说明](docs/sqlite-operations.md)。
 
 ```bash
 curl -fL https://raw.githubusercontent.com/heroixinu/flux-panel/codex/sqlite-default/panel_install.sh -o panel_install.sh

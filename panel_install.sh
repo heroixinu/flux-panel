@@ -231,6 +231,15 @@ install_panel() {
     echo "❌ 检测到现有安装或数据库卷；请先备份并使用更新或迁移流程。"
     return 1
   fi
+  if [[ "${DB_IMPORT_ENABLED:-false}" != false && "${DB_IMPORT_ENABLED:-false}" != true ]]; then
+    echo "DB_IMPORT_ENABLED must be true or false" >&2; return 1
+  fi
+  if [[ "${DB_IMPORT_ENABLED:-false}" == true && "$FLUX_DB_TYPE" != sqlite ]]; then
+    echo "Legacy backup import requires SQLite" >&2; return 1
+  fi
+  if [[ -n "${DB_IMPORT_FILE:-}" && ! "$DB_IMPORT_FILE" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "DB_IMPORT_FILE must be a simple basename" >&2; return 1
+  fi
   get_config_params
 
   echo "🔽 下载必要文件..."
@@ -243,7 +252,7 @@ install_panel() {
     curl -fL -o gost-schema.sql "$GOST_SCHEMA_URL"
     curl -fL -o gost.sql "$GOST_SQL_URL"
   else
-    install -d -m 0700 data
+    install -d -m 0700 data import
   fi
   echo "✅ 文件准备完成"
 
@@ -261,6 +270,12 @@ BACKEND_PORT=$BACKEND_PORT
 IMAGE_TAG=$FLUX_IMAGE_TAG
 BACKEND_IMAGE_TAG=$FLUX_BACKEND_IMAGE_TAG
 EOF
+  if [[ "$FLUX_DB_TYPE" == sqlite ]]; then
+    printf 'DB_IMPORT_ENABLED=%s\n' "${DB_IMPORT_ENABLED:-false}" >> .env
+    if [[ -n "${DB_IMPORT_FILE:-}" ]]; then
+      printf 'DB_IMPORT_FILE=%s\n' "$DB_IMPORT_FILE" >> .env
+    fi
+  fi
   if [[ "$FLUX_DB_TYPE" == postgresql ]]; then
     printf 'DB_NAME=%s\nDB_USER=%s\nDB_PASSWORD=%s\n' "$DB_NAME" "$DB_USER" "$DB_PASSWORD" >> .env
   fi

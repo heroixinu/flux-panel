@@ -76,3 +76,28 @@ The tool requires the exact eight business tables and matching columns in curren
 ## Verification / performance
 
 CI covers both runtime types with both DB engines, including AOT JVM checks, generated IDs, paginated queries, startup and idempotent initialization, node WebSocket, flow concurrency, scheduled statistics, nested dashboard DTOs, restart persistence, backup/restore, migration and failure/no-overwrite tests. The real containers collect startup time, process RSS, backend cgroup idle/warm/peak memory, and PostgreSQL container idle memory for combined idle comparisons. CI is AMD64 only. These are controlled measurements, not a production capacity benchmark; no memory saving figure is asserted until reports exist.
+
+## Automatic startup import from legacy backup files
+
+The backend container can convert a backup directly to a new SQLite database before starting Spring Boot. No source server or JDBC connection is required. Both Native and JVM images support:
+
+- MySQL 8 mysqldump (including multi-row INSERT, DDL column order, legacy user/user -> app_user/username, NULL, quotes and backslash escapes).
+- PostgreSQL plain pg_dump (COPY FROM stdin and literal INSERT) and PostgreSQL custom PGDMP archives, including archives named .sql.gz. Custom archives are rendered to text by the bundled pg_restore, without connecting to any database. Only supported pg_restore archive versions and the public schema are accepted. If an archive was created by a newer incompatible pg_dump, export a plain SQL dump instead.
+- Gzip-compressed and uncompressed .sql, .dump, .backup, .pgdump and .pgdmp files. The actual file magic/content, not the suffix, determines the format.
+
+Use a **new, empty SQLite data directory**. Stop the old deployment before taking the final backup. Copy your backup to the new deployment's import directory (keep the original elsewhere too). Set the following in .env or the backend container's environment:
+
+```dotenv
+DB_IMPORT_ENABLED=true
+DB_IMPORT_FILE=your-backup.sql.gz
+```
+
+The Compose files already mount `./import:/app/import:ro` and `./data:/app/data`. For custom Docker/1Panel configuration, set `DB_TYPE=sqlite`, `DB_PATH=/app/data/flux.db`, `DB_IMPORT_DIR=/app/import` and mount these two directories. `DB_IMPORT_FILE` is optional when the import directory contains exactly one supported backup. When multiple files exist it is mandatory. `DB_IMPORT_MAX_BYTES` defaults to 1073741824 (1 GiB), applied separately to decompressed input and decoded archive SQL. Oversized SQL statements/rows (>32 MiB) are rejected; regenerate the dump with smaller INSERT batches. Allow sufficient local disk for temporary decoded input and the resulting database; no database server or resident Python process is launched.
+
+Start the backend. It will parse only the eight known tables, validate the column sets, parameter-bind values into a temporary SQLite database, preserve explicit IDs and sequence high-water marks, check row counts and integrity, and publish the file atomically without replacing anything. The original dump is never modified. Unrecognized syntax, missing tables/admin, duplicate IDs/configs, corrupt archives, or an existing unrelated SQLite file cause startup to fail rather than seed a blank database. Schema changes are not silently discarded; this is for compatible Flux schemas, not arbitrary SQL backups. Never supply an untrusted dump; no source SQL is executed.
+
+A private `_flux_legacy_import` metadata table records the SHA-256 of the decompressed input and format. Repeated startup with the same backup is idempotent, including after application data changes. A different backup is rejected. If `DB_IMPORT_FILE` is still set and the selected file has been removed, startup fails; disable import after validation.
+
+After logs report **Legacy import complete**, check existing credentials, nodes, tunnel rules, forwarding, and counters. Preserve the old JWT_SECRET in the new .env. Once accepted, set `DB_IMPORT_ENABLED=false`, remove `DB_IMPORT_FILE`, and recreate the backend with the updated environment. Retain the original backup securely. Do not copy over a live SQLite database or enable import into a previously initialized database. For a retry after failure, correct the backup/configuration; the destination is not published on parse or validation failure. Existing SQLite data is never merged or overwritten.
+
+For the existing installation script, place one backup in ./import before a fresh install and launch with `DB_IMPORT_ENABLED=true DB_IMPORT_FILE=your-backup.sql.gz ./panel_install.sh` (subject to the existing installation safety checks). For an existing MySQL/PostgreSQL deployment, use a separate new Compose directory and perform an explicit offline cutover, not the ordinary upgrade menu. The existing live PostgreSQL migration tool remains supported.

@@ -2,3 +2,13 @@ target
 .git
 .idea
 *.log
+
+import/
+data/
+*.sql.gz
+*.dump
+*.dump.gz
+*.backup
+*.pgdump
+*.pgdmp
+__pycache__/

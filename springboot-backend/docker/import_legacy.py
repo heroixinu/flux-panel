@@ -18,6 +18,7 @@ TABLES = {"app_user", "forward", "node", "speed_limit", "statistics_flow",
 IDENT = r'(?:\x60(?:[^\x60]|\x60\x60)+\x60|"(?:[^"]|"")+"|[A-Za-z_][A-Za-z_0-9]*)'
 QUALIFIED = IDENT + r'(?:\s*\.\s*' + IDENT + r')?'
 MAX_STATEMENT = 32 * 1024 * 1024
+NUMBER_OR_NULL = re.compile(r"(?i)NULL\b|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 EXTENSIONS = (".sql", ".sql.gz", ".dump", ".dump.gz", ".backup", ".backup.gz", ".pgdump", ".pgdump.gz", ".pgdmp", ".pgdmp.gz")
 
 
@@ -63,6 +64,7 @@ def sql_statements(stream, mysql):
     """Yield complete statements; COPY data is consumed by the caller from stream."""
     pieces, length, quote_char, block = [], 0, None, False
     escaped = False
+    backslash_string = False
     for line in stream:
         if not pieces and not block and not quote_char:
             stripped = line.strip()
@@ -87,7 +89,7 @@ def sql_statements(stream, mysql):
                 length += 1
                 if escaped:
                     escaped = False
-                elif ch == "\\" and quote_char == "'" and mysql:
+                elif ch == "\\" and quote_char == "'" and backslash_string:
                     escaped = True
                 elif ch == quote_char:
                     if following == quote_char * 2:
@@ -104,6 +106,7 @@ def sql_statements(stream, mysql):
                 break
             elif ch in ("'", '"', chr(96)):
                 quote_char = ch
+                backslash_string = mysql or (ch == "'" and pos > 0 and line[pos-1] in "Ee" and (pos == 1 or not (line[pos-2].isalnum() or line[pos-2] == "_")))
                 pieces.append(ch)
                 length += 1
                 pos += 1
@@ -163,7 +166,7 @@ def columns_list(body, table, mysql):
     return columns
 
 
-def string_value(text, pos, mysql):
+def string_value(text, pos, mysql, pg_escape=False):
     result = []
     pos += 1
     escapes = {"0": "\0", "b": "\b", "n": "\n", "r": "\r", "t": "\t", "Z": "\x1a"}
@@ -176,12 +179,16 @@ def string_value(text, pos, mysql):
                 pos += 1
             else:
                 return "".join(result), pos
-        elif ch == "\\" and mysql:
+        elif ch == "\\" and (mysql or pg_escape):
             if pos >= len(text):
                 fail("Truncated escaped string")
             ch = text[pos]
             pos += 1
-            result.append(escapes.get(ch, "\\" + ch if ch in "%_" else ch))
+            if pg_escape and (ch in "01234567xXuU"):
+                # pg_dump emits plain text or COPY for numeric/unicode escapes.
+                # Reject uncommon E-string escapes rather than silently alter data.
+                fail("Unsupported PostgreSQL E-string numeric escape; use COPY format")
+            result.append(("\f" if pg_escape and ch == "f" else escapes.get(ch, "\\" + ch if mysql and ch in "%_" else ch)))
         else:
             result.append(ch)
     fail("Unterminated INSERT string")
@@ -207,8 +214,10 @@ def insert_rows(body, mysql):
             space()
             if pos < len(body) and body[pos] == "'":
                 value, pos = string_value(body, pos, mysql)
+            elif not mysql and body[pos:pos+2].lower() == "e'":
+                value, pos = string_value(body, pos + 1, False, True)
             else:
-                token = re.match(r"(?i)NULL\b|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", body[pos:])
+                token = NUMBER_OR_NULL.match(body, pos)
                 if not token:
                     fail("Unsupported INSERT literal (expressions and casts are not allowed)")
                 value = None if token.group().upper() == "NULL" else token.group()
