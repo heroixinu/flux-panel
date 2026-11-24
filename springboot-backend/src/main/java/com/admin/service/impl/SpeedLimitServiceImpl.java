@@ -271,7 +271,7 @@ public class SpeedLimitServiceImpl extends ServiceImpl<SpeedLimitMapper, SpeedLi
      * @return 检查结果响应
      */
     private R checkSpeedLimitUsage(Long speedLimitId) {
-        int userCount = userTunnelService.count(new QueryWrapper<UserTunnel>().eq("speed_id", speedLimitId));
+        long userCount = userTunnelService.count(new QueryWrapper<UserTunnel>().eq("speed_id", speedLimitId));
         if (userCount != 0) {
             return R.err(ERROR_SPEED_LIMIT_IN_USE);
         }

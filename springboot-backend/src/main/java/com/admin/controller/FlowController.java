@@ -396,7 +396,7 @@ public class FlowController extends BaseController {
     }
 
     private boolean isValidNode(String secret) {
-        int nodeCount = nodeService.count(new QueryWrapper<Node>().eq("secret", secret));
+        long nodeCount = nodeService.count(new QueryWrapper<Node>().eq("secret", secret));
         return nodeCount > 0;
     }
 
