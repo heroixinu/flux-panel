@@ -6,7 +6,7 @@ RUN mvn -B -ntp clean package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-ENV JAVA_OPTS="-Xmx512m -Xms256m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
+ENV JAVA_OPTS="-Xms32m -Xmx192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
 ENV LANG=C.UTF-8
 
 # curl is required by the Compose health check.

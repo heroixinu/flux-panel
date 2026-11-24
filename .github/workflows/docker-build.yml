@@ -5,11 +5,13 @@ on:
     branches:
       - main
       - codex/postgresql-support
+      - codex/graalvm-native
     tags:
       - '[0-9]*'
   pull_request:
     branches:
       - main
+      - codex/postgresql-support
   workflow_dispatch:
 
 permissions:
@@ -198,6 +200,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-,format=short
+            type=raw,value=graalvm-jvm,enable=${{ github.ref == 'refs/heads/codex/graalvm-native' }}
             type=raw,value=postgresql-support,enable=${{ github.ref == 'refs/heads/codex/postgresql-support' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       - name: Build and optionally publish
