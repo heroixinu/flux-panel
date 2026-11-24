@@ -16,8 +16,8 @@ cleanup() {
   exit "$result"
 }
 check_logs() {
-  if grep -E 'MissingReflectionRegistrationError|MissingResourceRegistrationError|Unexpected error occurred in scheduled task' "$1"; then
-    echo "Backend contains Native metadata or scheduled task errors" >&2
+  if grep -E 'MissingReflectionRegistrationError|MissingResourceRegistrationError|Unexpected error occurred in scheduled task|Type definition error:|InvalidDefinitionException|No serializer found for class' "$1"; then
+    echo "Backend contains Native metadata, serialization or scheduled task errors" >&2
     return 1
   fi
 }

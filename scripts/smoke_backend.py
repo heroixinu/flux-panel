@@ -84,6 +84,36 @@ def ws(secret, kind, **params):
         {"secret": secret, "type": kind, **params}), timeout=15)
 
 
+def check_dashboard(token, username, user_id, *, tunnel_id=None, forward_id=None, permission_id=None, speed_id=None):
+    # Actual dashboard request after login; HTTP 200 is not sufficient because
+    # GlobalExceptionHandler also returns R.err in a JSON HTTP 200 response.
+    data = post("user/package", token=token)
+    user = data["userInfo"]
+    assert user["id"] == user_id and user["user"] == username, (username, user)
+    assert "pwd" not in user and "password" not in user
+    assert isinstance(user["flow"], int)
+    assert isinstance(user["inFlow"], int) and isinstance(user["outFlow"], int)
+    permissions, forwards, stats = data["tunnelPermissions"], data["forwards"], data["statisticsFlows"]
+    assert isinstance(permissions, list) and isinstance(forwards, list)
+    assert len(stats) == 24, len(stats)
+    for row in stats:
+        assert row["userId"] == user_id and isinstance(row["time"], str)
+        assert isinstance(row["flow"], int) and isinstance(row["totalFlow"], int)
+    if tunnel_id is not None:
+        permission = next(row for row in permissions if row["id"] == permission_id)
+        assert permission["tunnelId"] == tunnel_id
+        assert permission["userId"] == user_id
+        assert permission["tunnelName"] == "ci-smoke-tunnel"
+        assert permission["speedId"] == speed_id
+        assert permission["speedLimitName"] == "ci-smoke-speed"
+        assert permission["speed"] == 50
+        forward = next(row for row in forwards if row["id"] == forward_id)
+        assert forward["tunnelId"] == tunnel_id and forward["name"] == "ci-smoke-forward"
+        assert forward["tunnelName"] == "ci-smoke-tunnel" and forward["remoteAddr"] == "example:80"
+        assert isinstance(forward["inFlow"], int) and isinstance(forward["outFlow"], int)
+    return data
+
+
 def verify_initial_schema():
     assert sql("SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN ('forward','node','speed_limit','statistics_flow','tunnel','app_user','user_tunnel','vite_config')") == "8"
     assert sql("SELECT count(*) FROM app_user WHERE username='admin_user'") == "1"
@@ -96,6 +126,9 @@ def main():
     assert post("captcha/check") == 0
     assert login("ADMIN_USER", "admin_user")["requirePasswordChange"] is True
     admin = login("admin_user", "admin_user")["token"]
+    admin_id = int(sql("SELECT id FROM app_user WHERE username='admin_user'"))
+    post("user/package", expected=401)
+    check_dashboard(admin, "admin_user", admin_id)
     login("admin_user", "wrong", expected=None)
     post("user/login", {"username": "", "password": ""}, expected=None)
     post("node/list", expected=401)
@@ -117,6 +150,8 @@ def main():
           "newPassword": "ci-smoke-new-password", "confirmPassword": "ci-smoke-new-password"}, ordinary)
     login("ci_smoke_user", "ci-smoke-password", expected=None)
     ordinary = login("ci_smoke_user", "ci-smoke-new-password")["token"]
+    empty_dashboard = check_dashboard(ordinary, "ci_smoke_user", uid)
+    assert empty_dashboard["tunnelPermissions"] == [] and empty_dashboard["forwards"] == []
     assert any(item["id"] == uid for item in post("user/list", token=admin))
 
     node = {"name": "ci-smoke-node", "ip": "127.0.0.1", "serverIp": "127.0.0.1",
@@ -167,7 +202,8 @@ def main():
     # Prepare deterministic relational fixtures without needing a real external GOST process.
     tid = int(sql(f"INSERT INTO tunnel(name,in_node_id,in_ip,out_node_id,out_ip,type,flow,created_time,updated_time,status) VALUES ('ci-smoke-tunnel',{nid},'127.0.0.1',{nid},'127.0.0.1',1,1,1,1,1) RETURNING id"))
     fid = int(sql(f"INSERT INTO forward(user_id,user_name,name,tunnel_id,in_port,remote_addr,created_time,updated_time,status) VALUES ({uid},'ci_smoke_user','ci-smoke-forward',{tid},1234,'example:80',1,1,1) RETURNING id"))
-    pid = int(sql(f"INSERT INTO user_tunnel(user_id,tunnel_id,num,flow,flow_reset_time,exp_time,status) VALUES ({uid},{tid},10,100,0,2727251700000,1) RETURNING id"))
+    sid = int(sql(f"INSERT INTO speed_limit(name,speed,tunnel_id,tunnel_name,created_time,updated_time,status) VALUES ('ci-smoke-speed',50,{tid},'ci-smoke-tunnel',1,1,1) RETURNING id"))
+    pid = int(sql(f"INSERT INTO user_tunnel(user_id,tunnel_id,num,flow,flow_reset_time,exp_time,speed_id,status) VALUES ({uid},{tid},10,100,0,2727251700000,{sid},1) RETURNING id"))
     # Existing node changes must batch-update tunnel addresses, not only the
     # empty-list case exercised during the WebSocket SetProtocol test.
     post("node/update", dict(node, id=nid, ip="127.0.0.2", serverIp="127.0.0.3",
@@ -175,7 +211,17 @@ def main():
     assert sql(f"SELECT in_ip || ',' || out_ip FROM tunnel WHERE id={tid}") == "127.0.0.2,127.0.0.3"
     assert any(item["id"] == fid for item in post("forward/list", token=ordinary))
     post("tunnel/list", token=admin)
-    post("speed-limit/list", token=admin)
+    assert any(row["id"] == sid for row in post("speed-limit/list", token=admin))
+    assert any(row["id"] == tid for row in post("tunnel/user/tunnel", token=ordinary))
+    assert any(row["id"] == pid and row["speedId"] == sid
+               for row in post("tunnel/user/list", {"userId": uid}, admin))
+    # Diagnostic reports contain DTOs hidden inside a Map<String,Object>.
+    # Use the disconnected local fake node, so no external network is needed.
+    forward_report = post("forward/diagnose", {"forwardId": fid}, ordinary)
+    tunnel_report = post("tunnel/diagnose", {"tunnelId": tid}, admin)
+    for report in (forward_report, tunnel_report):
+        assert report["results"] and report["results"][0]["nodeId"] == nid
+        assert report["results"][0]["success"] is False
     path = "/flow/upload?" + urllib.parse.urlencode({"secret": secret})
     flow = {"n": f"{fid}_{uid}_{pid}_tcp", "u": 3, "d": 5}
     assert request(path, flow) == "ok"
@@ -187,6 +233,11 @@ def main():
 
     # Scheduled statistics and flow reset run every five seconds in the disposable CI container.
     eventually(lambda: sql(f"SELECT count(*) FROM statistics_flow WHERE user_id={uid} AND total_flow=16") != "0", timeout=25)
+    dashboard = check_dashboard(ordinary, "ci_smoke_user", uid, tunnel_id=tid,
+                                forward_id=fid, permission_id=pid, speed_id=sid)
+    assert dashboard["userInfo"]["inFlow"] == 10 and dashboard["userInfo"]["outFlow"] == 6
+    assert any(row["totalFlow"] == 16 for row in dashboard["statisticsFlows"])
+    print("Dashboard nested DTO serialization, populated permissions, forwards and statistics passed")
     today = datetime.now(ZoneInfo("Asia/Shanghai")).day
     sql(f"UPDATE app_user SET flow_reset_time={today} WHERE id={uid}")
     sql(f"UPDATE user_tunnel SET flow_reset_time={today} WHERE id={pid}")
@@ -208,8 +259,17 @@ def verify_restart():
     assert sql("SELECT count(*) FROM forward WHERE name='ci-smoke-forward'") == "1"
     assert sql("SELECT value FROM vite_config WHERE name='app_name'") == "native-smoke"
     assert post("captcha/check") == 0
-    login("ci_smoke_admin", "ci-admin-new-password")
-    login("ci_smoke_user", "ci-smoke-new-password")
+    admin = login("ci_smoke_admin", "ci-admin-new-password")["token"]
+    ordinary = login("ci_smoke_user", "ci-smoke-new-password")["token"]
+    admin_id = int(sql("SELECT id FROM app_user WHERE username='ci_smoke_admin'"))
+    uid = int(sql("SELECT id FROM app_user WHERE username='ci_smoke_user'"))
+    tid = int(sql("SELECT id FROM tunnel WHERE name='ci-smoke-tunnel'"))
+    fid = int(sql("SELECT id FROM forward WHERE name='ci-smoke-forward'"))
+    sid = int(sql("SELECT id FROM speed_limit WHERE name='ci-smoke-speed'"))
+    pid = int(sql(f"SELECT id FROM user_tunnel WHERE user_id={uid} AND tunnel_id={tid}"))
+    check_dashboard(admin, "ci_smoke_admin", admin_id)
+    check_dashboard(ordinary, "ci_smoke_user", uid, tunnel_id=tid,
+                    forward_id=fid, permission_id=pid, speed_id=sid)
     print("Existing database and password changes preserved after restart")
 
 

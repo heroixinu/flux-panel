@@ -47,12 +47,27 @@ public final class FluxRuntimeHints implements RuntimeHintsRegistrar {
                 com.baomidou.mybatisplus.extension.plugins.pagination.Page.class
         };
         for (Class<?> model : models) {
-            hints.reflection().registerType(model,
-                    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
-                    MemberCategory.INVOKE_PUBLIC_METHODS,
-                    MemberCategory.INVOKE_DECLARED_METHODS,
-                    MemberCategory.DECLARED_FIELDS,
-                    MemberCategory.PUBLIC_FIELDS);
+            registerModel(hints, model);
+        }
+    }
+
+    /**
+     * R.data is declared as Object, so MVC AOT cannot infer the response
+     * graph. Register nested DTOs too: UserPackageDto contains user info,
+     * tunnel permission and forwarding result types returned via Mapper XML.
+     * This runs during AOT processing, not in the native application.
+     */
+    private static void registerModel(RuntimeHints hints, Class<?> model) {
+        hints.reflection().registerType(model,
+                MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                MemberCategory.INVOKE_PUBLIC_METHODS,
+                MemberCategory.INVOKE_DECLARED_METHODS,
+                MemberCategory.DECLARED_FIELDS,
+                MemberCategory.PUBLIC_FIELDS);
+        for (Class<?> nested : model.getDeclaredClasses()) {
+            if (!nested.isSynthetic()) {
+                registerModel(hints, nested);
+            }
         }
     }
 }

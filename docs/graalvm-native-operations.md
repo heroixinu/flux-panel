@@ -31,11 +31,13 @@ docker build -f Dockerfile.native -t flux-backend:native .
 当前阶段仅构建、测试和发布 Linux AMD64；ARM64 暂停，源码和安装脚本的架构兼容逻辑保留。实验分支生成的镜像及 GOST release 资产不再包含 ARM64。稳定分支未修改。
 
 docker-build.yml: MySQL→PG 迁移回归、JVM 集成测试、前端构建、GOST AMD64、JVM AMD64 镜像。
-native-image.yml: JVM/Native × AMD64 的实际容器测试。两种产物使用同一套 smoke_backend.py，包括空库初始化、历史验证码关闭、密码及 JWT、普通用户权限限制、节点握手与重连、AES-GCM 双向命令、Mapper XML 查询、隧道批量更新、流量上报、统计/重置定时任务、重启数据保留。
+native-image.yml: JVM/Native × AMD64 的实际容器测试。两种产物使用同一套 smoke_backend.py，包括空库初始化、历史验证码关闭、密码及 JWT、普通用户权限限制、节点握手与重连、AES-GCM 双向命令、Mapper XML 查询、隧道批量更新、流量上报、统计/重置定时任务、登录后仪表盘完整响应（用户、隧道权限、转发、24 小时统计）、诊断 DTO、重启数据保留。
 
 Native 编译前先以 Spring AOT 模式在独立的 flux_aot 测试数据库运行同一套业务 smoke 测试；若 Mapper 装配或 AOT 运行失败，不进入 GraalVM 编译。MapperScan 显式引用 sqlSessionTemplate，避免 Native 运行时丢失隐式依赖注入。RuntimeHints 显式注册 SqlSessionTemplate.getSqlSessionFactory 的反射调用，覆盖 MyBatis-Plus 批量写入/更新路径。WebSocketServer 使用具体类型的组件和构造器注入，WebSocketConfig 注册已初始化的 handler 实例，避免接口返回类型隐藏资源注入点。
 
 标准 JVM 测试、JVM Dockerfile、AOT 打包和 Native 编译共用 springboot-backend/ci/mvn_retry.sh。Docker 构建使用 BuildKit Maven 依赖缓存，Native CI 复用标准 JVM Maven 缓存，并在 AOT 打包成功后立即保存 Native 依赖缓存，不受后续容器测试失败影响。仅在 Central 临时限流或网络故障时切换 Google Central 镜像及官方 Central 备用地址，设置有限网络超时；不跳过编译或运行时测试。
+
+R.data 的静态类型为 Object，Spring MVC AOT 无法自动推断所有响应 DTO。FluxRuntimeHints 对显式模型列表递归注册嵌套类，并由 NativeRuntimeHintsTests 检查 DTO 与实体包中的全部类型是否注册；容器测试必须验证 /api/v1/user/package 的非空嵌套数据和业务 code，而不是只检查 HTTP 200。
 
 所有 smoke 检查只应在隔离的 PostgreSQL 测试库运行。CI 容器统一 512MiB 内存、2 CPU、不使用 swap；报告包含冷启动到 HTTP ready 时间、重启 ready、空闲 cgroup memory.current、进程 RSS、负载后与峰值内存。测试报告是 GitHub Actions artifact，不应把构建成功或估算值当作实测。
 
