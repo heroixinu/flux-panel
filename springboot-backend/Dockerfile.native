@@ -3,10 +3,13 @@
 FROM ubuntu:24.04
 WORKDIR /app
 ENV LANG=C.UTF-8 TZ=Asia/Shanghai DB_PATH=/app/data/flux.db
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g sqlite3 \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g sqlite3 python3 postgresql-client \
     && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/import
+COPY docker/import_legacy.py /app/import-legacy.py
+COPY --chmod=0755 docker/start-backend.sh /app/start-backend.sh
+COPY src/main/resources/db/init/sqlite-schema.sql /app/sqlite-schema.sql
 COPY --chmod=0755 native/flux-panel /app/flux-panel
 EXPOSE 6365
-ENTRYPOINT ["/app/flux-panel"]
+ENTRYPOINT ["/app/start-backend.sh", "/app/flux-panel"]
 CMD ["-Xms32m", "-Xmx192m", "-Duser.timezone=Asia/Shanghai", "-Dfile.encoding=UTF-8"]

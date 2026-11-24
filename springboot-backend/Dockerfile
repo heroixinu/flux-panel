@@ -13,12 +13,15 @@ ENV LANG=C.UTF-8 DB_PATH=/app/data/flux.db
 
 # curl is required by the Compose health check.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl sqlite3 \
+    && apt-get install -y --no-install-recommends curl sqlite3 python3 postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/import
+COPY docker/import_legacy.py /app/import-legacy.py
+COPY --chmod=0755 docker/start-backend.sh /app/start-backend.sh
+COPY src/main/resources/db/init/sqlite-schema.sql /app/sqlite-schema.sql
 EXPOSE 6365
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
+ENTRYPOINT ["/app/start-backend.sh", "jvm"]
 
 # CI consumes the JAR built on the runner with the shared Maven cache.
 # BuildKit skips the source build stage for this target.

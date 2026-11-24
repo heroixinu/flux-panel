@@ -6,6 +6,10 @@ services:
     environment:
       DB_TYPE: sqlite
       DB_PATH: /app/data/flux.db
+      DB_IMPORT_ENABLED: ${DB_IMPORT_ENABLED:-false}
+      DB_IMPORT_DIR: /app/import
+      DB_IMPORT_FILE: ${DB_IMPORT_FILE:-}
+      DB_IMPORT_MAX_BYTES: ${DB_IMPORT_MAX_BYTES:-1073741824}
       JWT_SECRET: ${JWT_SECRET}
       LOG_DIR: /app/logs
       JAVA_OPTS: "-Xms32m -Xmx192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
@@ -14,6 +18,7 @@ services:
     volumes:
       - backend_logs:/app/logs
       - ./data:/app/data
+      - ./import:/app/import:ro
     networks:
       - gost-network
     healthcheck:

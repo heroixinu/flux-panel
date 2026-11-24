@@ -270,3 +270,9 @@ commit.sh
 *.sqlite-shm
 *.sqlite3-wal
 *.sqlite3-shm
+
+# Local legacy backup drop directory (never commit production dumps)
+/import/
+*.dump
+*.pgdump
+*.pgdmp
