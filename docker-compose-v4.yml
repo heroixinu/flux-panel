@@ -21,7 +21,7 @@ services:
       retries: 10
 
   backend:
-    image: ghcr.io/heroixinu/flux-panel-backend:${IMAGE_TAG:-1.5.0}
+    image: ghcr.io/heroixinu/flux-panel-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG:-1.5.0}}
     container_name: springboot-backend
     restart: unless-stopped
     environment:

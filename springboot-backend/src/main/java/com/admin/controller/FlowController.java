@@ -163,7 +163,7 @@ public class FlowController extends BaseController {
      */
     private boolean isEncryptedMessage(String data) {
         try {
-            JSONObject json = JsonSupport.read(data);
+            JsonNode json = JsonSupport.tree(data);
             return json.path("encrypted").asBoolean(false);
         } catch (Exception e) {
             return false;
