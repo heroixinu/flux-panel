@@ -13,6 +13,7 @@ const setPanelAddressesFunc = (newAddress: PanelAddress[]) => {
     if (item.inx) {
       baseURL = `${item.address}/api/v1/`;
       axios.defaults.baseURL = baseURL;
+      window.dispatchEvent(new Event('flux:panel-address-ready'));
     }
   });
 }
@@ -101,7 +102,7 @@ const Network = {
     });
   },
 
-  post: function<T = any>(path: string = '', data: any = {}): Promise<ApiResponse<T>> {
+  post: function<T = any>(path: string = '', data: any = {}, options: {anonymous?: boolean} = {}): Promise<ApiResponse<T>> {
     return new Promise(function(resolve) {
       // 如果baseURL是默认值且是WebView环境，说明没有设置面板地址
       if (baseURL === '') {
@@ -112,28 +113,29 @@ const Network = {
       axios.post(path, data, {
         timeout: 30000,
         headers: {
-          "Authorization": window.localStorage.getItem('token'),
+          "Authorization": options.anonymous ? undefined : window.localStorage.getItem('token'),
           "Content-Type": "application/json"
         }
       })
         .then(function(response: AxiosResponse<ApiResponse<T>>) {
           // 检查是否token失效
-          if (isTokenExpired(response.data)) {
+          if (!options.anonymous && isTokenExpired(response.data)) {
             handleTokenExpired();
             return;
           }
           resolve(response.data);
         })
                  .catch(function(error: any) {
-           console.error('POST请求错误:', error);
+           // AxiosError.config may include the password or credential payload.
+           console.error('POST请求错误:', error.message || '网络请求失败');
            
            // 检查是否是401错误（token失效）
-           if (error.response && error.response.status === 401) {
+           if (!options.anonymous && error.response && error.response.status === 401) {
              handleTokenExpired();
              return;
            }
            
-           resolve({"code": -1, "msg": error.message || "网络请求失败", "data": null as T});
+           resolve({"code": options.anonymous ? (error.response?.status ?? -1) : -1, "msg": error.message || "网络请求失败", "data": null as T});
          });
     });
   }

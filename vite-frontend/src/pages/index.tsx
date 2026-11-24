@@ -27,7 +27,12 @@ export default function IndexPage() {
   const [loading, setLoading] = useState(false);
   const [loginModes, setLoginModes] = useState<Modes>();
   const loadModes = () => modes().then(setLoginModes).catch(() => toast.error('无法读取登录方式，请重试'));
-  useEffect(() => { loadModes(); }, []);
+  useEffect(() => {
+    loadModes();
+    // The native WebView supplies its selected panel asynchronously.
+    window.addEventListener('flux:panel-address-ready', loadModes);
+    return () => window.removeEventListener('flux:panel-address-ready', loadModes);
+  }, []);
   const handlePasskey = async () => {
     setLoading(true);
     try {
@@ -147,6 +152,7 @@ export default function IndexPage() {
             </CardHeader>
             <CardBody className="px-6 py-6">
               <div className="flex flex-col gap-4">
+                {loginModes?.legacyBackend && <p className="text-small text-default-500">后端尚不支持 Passkey；同步升级后即可使用。</p>}
                 {loginModes?.passwordEnabled && <>
                 <Input
                   label="用户名"
