@@ -9,7 +9,6 @@ on:
       - 'scripts/smoke_backend.py'
       - 'scripts/ci_backend_container.sh'
       - 'scripts/ci_aot_preflight.sh'
-      - 'scripts/mvn_native_retry.sh'
       - '.github/workflows/native-image.yml'
   pull_request:
     branches: [main, codex/postgresql-support]
@@ -18,7 +17,6 @@ on:
       - 'scripts/smoke_backend.py'
       - 'scripts/ci_backend_container.sh'
       - 'scripts/ci_aot_preflight.sh'
-      - 'scripts/mvn_native_retry.sh'
       - '.github/workflows/native-image.yml'
   workflow_dispatch:
 
@@ -105,7 +103,7 @@ jobs:
       - name: Package application with Spring AOT
         if: matrix.runtime == 'native'
         working-directory: springboot-backend
-        run: bash ../scripts/mvn_native_retry.sh aot-build.log -Pnative -DskipTests package
+        run: bash ci/mvn_retry.sh aot-build.log -Pnative -DskipTests package
       # Save before any runtime test can fail; dependency cache must survive red CI.
       - name: Save resolved Native Maven dependencies
         if: matrix.runtime == 'native' && steps.native-cache.outputs.cache-hit != 'true'
@@ -123,7 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           native-image --version
-          bash ../scripts/mvn_native_retry.sh native-build.log -Pnative -DskipTests native:compile
+          bash ci/mvn_retry.sh native-build.log -Pnative -DskipTests native:compile
           mkdir -p native
           cp target/flux-panel native/flux-panel
           file native/flux-panel

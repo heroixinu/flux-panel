@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI: retry transient Maven Central failures, using alternate Central endpoints.
+# JVM and Native builds: retry transient Maven Central failures.
 # Do not retry application, AOT or native compiler errors.
 set -euo pipefail
 log="$1"
@@ -12,8 +12,8 @@ trap 'rm -rf "$scratch"' EXIT
 # replace the default Central repositories via an active settings profile.
 endpoints=(
   'https://repo.maven.apache.org/maven2'
-  'https://repo1.maven.org/maven2'
   'https://maven-central.storage-download.googleapis.com/maven2'
+  'https://repo1.maven.org/maven2'
   'https://repo.maven.apache.org/maven2'
 )
 transient='HTTP (Status: )?(429|502|503|504)|status code: (429|502|503|504)|status (429|502|503|504)|Read timed out|Connection reset|Connection timed out|Temporary failure in name resolution|Connect timed out|Premature end of Content-Length'

@@ -1,8 +1,10 @@
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY pom.xml .
+COPY ci/mvn_retry.sh ./ci/mvn_retry.sh
 COPY src ./src
-RUN mvn -B -ntp clean package -DskipTests
+RUN --mount=type=cache,target=/root/.m2/repository \
+    bash ci/mvn_retry.sh /tmp/maven-build.log clean package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

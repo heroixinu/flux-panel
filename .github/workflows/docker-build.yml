@@ -129,7 +129,7 @@ jobs:
           DB_PASSWORD: test-password
           JWT_SECRET: integration-test-secret-at-least-32-characters
           LOG_DIR: /tmp/flux-test-logs
-        run: mvn -B -ntp test
+        run: bash ci/mvn_retry.sh maven-test.log test
 
   test-frontend:
     name: Verify Vite build
