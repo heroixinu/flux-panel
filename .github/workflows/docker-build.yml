@@ -219,7 +219,8 @@ jobs:
   test-passkey-browser:
     name: Passkey browser end-to-end
     needs: [test-postgres, test-frontend]
-    runs-on: ubuntu-latest
+    # Playwright's pinned Chromium supports Ubuntu 24.04, not the rolling 26.04 runner.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       DB_TYPE: sqlite
