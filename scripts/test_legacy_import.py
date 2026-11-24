@@ -56,7 +56,7 @@ def pg_value(value):
     return str(value).replace("\\", "\\\\").replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
 
 
-def fixture_dumps(directory):
+def fixture_dumps(directory, passkeys=False):
     """Match the two source layouts, plus PG plain SQL and INSERT variants."""
     directory.mkdir(parents=True, exist_ok=True)
     with closing(create_fixture()) as conn:
@@ -65,6 +65,8 @@ def fixture_dumps(directory):
         pg = ["-- PostgreSQL database dump\nSET standard_conforming_strings = on;\n"]
         pg_insert = ["-- PostgreSQL database dump\nSET standard_conforming_strings = on;\n"]
         for table, ddl in tables:
+            if not passkeys and table.startswith("passkey_"):
+                continue
             name = "user" if table == "app_user" else table
             cols = [row[1] for row in conn.execute("PRAGMA table_info(" + table + ")")]
             types = [row[2] for row in conn.execute("PRAGMA table_info(" + table + ")")]
@@ -130,6 +132,26 @@ def unit():
             different = "pg.sql" if name != "pg.sql" else "mysql.sql.gz"
             invoke(directory, dest, different, success=False)
             assert dest.read_bytes() == before
+        # Old dumps omit both new tables; new dumps preserve both credentials
+        # and policy. A partial security schema must fail closed.
+        newer = fixture_dumps(root / "newer", passkeys=True)
+        pg = newer / "pg.sql"
+        content = pg.read_text()
+        content = content.replace('COPY public.passkey_policy ("id", "password_enabled") FROM stdin;\n\\.\n',
+                                  'COPY public.passkey_policy ("id", "password_enabled") FROM stdin;\n1\t0\n\\.\n')
+        content = content.replace('COPY public.passkey_credential ("id", "user_id", "rp_id", "credential_id", "user_handle", "public_key_cose", "signature_count", "label", "created_at", "last_used_at", "backup_eligible", "backed_up") FROM stdin;\n\\.\n',
+                                  'COPY public.passkey_credential ("id", "user_id", "rp_id", "credential_id", "user_handle", "public_key_cose", "signature_count", "label", "created_at", "last_used_at", "backup_eligible", "backed_up") FROM stdin;\n1\t1\tlocalhost\tY3JlZA\tdXNlcg\tY29zZQ\t1\tci\t1\t2\t0\t0\n\\.\n')
+        pg.write_text(content)
+        secured = root / "secured.db"
+        invoke(newer, secured, "pg.sql")
+        with closing(sqlite3.connect(secured)) as conn:
+            assert conn.execute("SELECT password_enabled FROM passkey_policy").fetchone() == (0,)
+            assert conn.execute("SELECT user_id,credential_id,last_used_at FROM passkey_credential").fetchone() == (1, "Y3JlZA", 2)
+        (newer / "partial.sql").write_text((directory / "pg.sql").read_text() +
+                                            'COPY public.passkey_policy ("id", "password_enabled") FROM stdin;\n1\t0\n\\.\n')
+        invoke(newer, root / "partial.db", "partial.sql", success=False)
+        (newer / "orphan.sql").write_text(content.replace("1\t1\tlocalhost", "1\t99999\tlocalhost"))
+        invoke(newer, root / "orphan.db", "orphan.sql", success=False)
         dest = root / "bad.db"
         invoke(directory, dest, success=False)  # ambiguous file selection
         assert not dest.exists()

@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 public class PasskeyService implements CredentialRepository {
     private static final long TTL = 120_000;
     private static final int MAX_PENDING = 512;
+    private static final int MAX_PUBLIC_PENDING = 384;
     private static final int MAX_KEYS = 20;
     private final JdbcTemplate jdbc;
     private final UserMapper users;
@@ -91,7 +92,10 @@ public class PasskeyService implements CredentialRepository {
     public boolean enabled() { return rp != null; }
 
     public synchronized boolean passwordEnabled() {
-        if (recovery) return true;
+        return recovery || storedPasswordEnabled();
+    }
+
+    private boolean storedPasswordEnabled() {
         List<Integer> values = jdbc.queryForList("SELECT password_enabled FROM passkey_policy WHERE id=1", Integer.class);
         return values.isEmpty() || values.getFirst() == 1;
     }
@@ -114,7 +118,8 @@ public class PasskeyService implements CredentialRepository {
 
     public synchronized R modes() {
         return R.ok(Map.of("passkeyEnabled", enabled(), "passwordEnabled", passwordEnabled(),
-                "origin", enabled() ? origin : "", "recovery", recovery));
+                "origin", enabled() ? origin : "", "recovery", recovery,
+                "storedPasswordEnabled", storedPasswordEnabled()));
     }
 
     private void requireEnabled() {
@@ -148,6 +153,14 @@ public class PasskeyService implements CredentialRepository {
         prune();
         // One outstanding ceremony of each authenticated purpose per session.
         if (token != null) pending.values().removeIf(p -> purpose.equals(p.purpose()) && token.equals(p.token()));
+        // Anonymous requests cannot consume the capacity reserved for signed-in
+        // credential management. Evict the oldest anonymous request if needed.
+        if (token == null && pending.values().stream().filter(p -> p.token() == null).count() >= MAX_PUBLIC_PENDING) {
+            var iterator = pending.values().iterator();
+            while (iterator.hasNext()) {
+                if (iterator.next().token() == null) { iterator.remove(); break; }
+            }
+        }
         if (pending.size() >= MAX_PENDING) throw new Denied("验证请求过多，请稍后重试");
         String id = randomId();
         pending.put(id, new Pending(purpose, userId, token, options, System.currentTimeMillis() + TTL));
@@ -168,7 +181,7 @@ public class PasskeyService implements CredentialRepository {
         if (!c.isObject() || c.toString().length() > 65536) throw new Denied("无效的 Passkey 响应");
         byte[] raw = Base64.getUrlDecoder().decode(c.path("response").path("clientDataJSON").asText());
         JsonNode client = json.readTree(raw);
-        if (client == null || client.path("crossOrigin").asBoolean(false) || client.has("topOrigin"))
+        if (client == null || !client.isObject() || client.path("crossOrigin").asBoolean(false) || client.has("topOrigin"))
             throw new Denied("不允许跨站嵌入的 Passkey 验证");
         return c;
     }
@@ -241,7 +254,8 @@ public class PasskeyService implements CredentialRepository {
                 .map(k -> Map.<String,Object>of("id", k.id(), "label", k.label(), "createdAt", k.created(),
                         "lastUsedAt", k.used(), "backedUp", k.backedUp())).toList() : List.of();
         return R.ok(Map.of("passkeyEnabled", enabled(), "passwordEnabled", passwordEnabled(),
-                "recovery", recovery, "admin", user.getRoleId() == 0, "keys", result,
+                "recovery", recovery, "storedPasswordEnabled", storedPasswordEnabled(),
+                "origin", enabled() ? origin : "", "admin", user.getRoleId() == 0, "keys", result,
                 "allUsersReady", enabled() && user.getRoleId() == 0 && allActiveUsersReady()));
     }
 
@@ -278,6 +292,8 @@ public class PasskeyService implements CredentialRepository {
         if (label.isEmpty() || label.length() > 100) throw new Denied("Passkey 名称须为 1 至 100 个字符");
         var response = PublicKeyCredential.parseRegistrationResponseJson(credential(body).toString());
         RegistrationResult result = rp.finishRegistration(FinishRegistrationOptions.builder().request(options).response(response).build());
+        if (!result.isUserVerified() || result.isDiscoverable().orElse(true) == false)
+            throw new Denied("需要支持用户验证和可发现凭证的 Passkey");
         if (count("SELECT count(*) FROM passkey_credential WHERE rp_id=? AND credential_id=?", rpId, result.getKeyId().getId().getBase64Url()) != 0)
             throw new Denied("该 Passkey 已注册");
         jdbc.update("INSERT INTO passkey_credential(user_id,rp_id,credential_id,user_handle,public_key_cose,signature_count,label,created_at,last_used_at,backup_eligible,backed_up) " +
@@ -291,10 +307,10 @@ public class PasskeyService implements CredentialRepository {
         requireEnabled();
         User user = reauth ? session(token) : null;
         var builder = StartAssertionOptions.builder().userVerification(UserVerificationRequirement.REQUIRED).timeout(TTL);
-        if (reauth) {
-            if (userKeys(user.getId()).isEmpty()) throw new Denied("尚未绑定 Passkey");
-            builder.username(user.getUser());
-        }
+        if (reauth && userKeys(user.getId()).isEmpty()) throw new Denied("尚未绑定 Passkey");
+        // Both flows are discoverable assertions. A credential marked verified
+        // must actually work without a username or allowCredentials list.
+        // Reauthentication additionally checks the authenticated user ID below.
         AssertionRequest options = rp.startAssertion(builder.build());
         String id = remember(reauth ? "reauth" : "login", reauth ? user.getId() : null, reauth ? token : null, options);
         return R.ok(Map.of("requestId", id, "options", json.readTree(options.toCredentialsGetJson()).path("publicKey")));
@@ -337,16 +353,20 @@ public class PasskeyService implements CredentialRepository {
     }
 
     public synchronized R policy(String token, JsonNode body) {
-        requireEnabled();
+        if (!enabled() && !recovery) requireEnabled();
         User user = session(token);
         if (user.getRoleId() != 0) throw new Denied("仅管理员可修改登录方式");
         if (!body.path("passwordEnabled").isBoolean()) throw new Denied("无效的登录配置");
-        consume(body.path("proof").asText(), "proof", user.getId(), token);
         boolean enabled = body.path("passwordEnabled").asBoolean();
+        // The explicit server-side recovery switch allows a fresh password
+        // proof to permanently restore mixed mode, even if every key was lost.
+        if (recovery && enabled) authorize(user, token, body);
+        else consume(body.path("proof").asText(), "proof", user.getId(), token);
         if (!enabled && (recovery || !allActiveUsersReady()))
             throw new Denied("关闭前所有启用账号均须成功验证 Passkey，且必须退出应急恢复模式");
         jdbc.update("INSERT INTO passkey_policy(id,password_enabled) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET password_enabled=excluded.password_enabled",
                 enabled ? 1 : 0);
+        pending.clear();
         return R.ok();
     }
 }

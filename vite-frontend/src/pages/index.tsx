@@ -26,7 +26,8 @@ export default function IndexPage() {
   });
   const [loading, setLoading] = useState(false);
   const [loginModes, setLoginModes] = useState<Modes>();
-  useEffect(() => { modes().then(setLoginModes).catch(() => toast.error('无法读取登录方式，请刷新重试')); }, []);
+  const loadModes = () => modes().then(setLoginModes).catch(() => toast.error('无法读取登录方式，请重试'));
+  useEffect(() => { loadModes(); }, []);
   const handlePasskey = async () => {
     setLoading(true);
     try {
@@ -183,9 +184,9 @@ export default function IndexPage() {
                   {loading ? "登录中..." : "登录"}
                 </Button>
                 </>}
-                {loginModes?.passkeyEnabled && <Button color="primary" variant={loginModes.passwordEnabled ? "bordered" : "solid"} size="lg" isDisabled={loading || !supported()} onPress={handlePasskey}>使用 Passkey 登录</Button>}
-                {loginModes?.passkeyEnabled && !supported() && <p className="text-small">请使用支持 Passkey 的 HTTPS 浏览器。</p>}
-                {!loginModes && <p>正在读取登录方式...</p>}
+                {loginModes?.passkeyEnabled && <Button color="primary" variant={loginModes.passwordEnabled ? "bordered" : "solid"} size="lg" isDisabled={loading || !supported(loginModes?.origin)} onPress={handlePasskey}>使用 Passkey 登录</Button>}
+                {loginModes?.passkeyEnabled && !supported(loginModes?.origin) && <p className="text-small">请使用支持 Passkey 的浏览器访问 {loginModes.origin}。</p>}
+                {!loginModes && <><p>正在读取登录方式...</p><Button variant="light" onPress={loadModes}>重新加载</Button></>}
               </div>
             </CardBody>
           </Card>

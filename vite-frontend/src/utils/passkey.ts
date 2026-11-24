@@ -1,9 +1,9 @@
 import Network from '@/api/network';
 import type { LoginResponse } from '@/api';
 
-export interface Modes { passkeyEnabled: boolean; passwordEnabled: boolean; origin: string; recovery: boolean }
+export interface Modes { passkeyEnabled: boolean; passwordEnabled: boolean; origin: string; recovery: boolean; storedPasswordEnabled: boolean }
 export interface KeyInfo { id: number; label: string; createdAt: number; lastUsedAt: number; backedUp: boolean }
-export interface KeyList extends Omit<Modes, 'origin'> { admin: boolean; allUsersReady: boolean; keys: KeyInfo[] }
+export interface KeyList extends Modes { admin: boolean; allUsersReady: boolean; keys: KeyInfo[] }
 async function post<T>(path: string, data: object = {}): Promise<T> {
   const r = await Network.post<T>('/passkey/' + path, data);
   if (r.code !== 0) throw new Error(r.msg);
@@ -11,7 +11,7 @@ async function post<T>(path: string, data: object = {}): Promise<T> {
 }
 export const modes = () => post<Modes>('modes');
 export const listKeys = () => post<KeyList>('list');
-export const supported = () => window.isSecureContext && !!window.PublicKeyCredential && !!navigator.credentials;
+export const supported = (origin?: string) => window.isSecureContext && !!window.PublicKeyCredential && !!navigator.credentials && (!origin || window.location.origin === origin);
 const decode = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), c => c.charCodeAt(0));
 const encode = (b: ArrayBuffer) => btoa(Array.from(new Uint8Array(b), c => String.fromCharCode(c)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 interface Ceremony { requestId: string; options: any }
@@ -42,4 +42,4 @@ export async function registerKey(label: string, authorization: {password: strin
   await post('register/finish', {requestId, label, credential: serialize(credential)});
 }
 export const deleteKey = (id: number, authorization: {password: string} | {proof: string}) => post('delete', {id, ...authorization});
-export const setPasswordEnabled = (passwordEnabled: boolean, proof: string) => post('policy', {passwordEnabled, proof});
+export const setPasswordEnabled = (passwordEnabled: boolean, authorization: {password: string} | {proof: string}) => post('policy', {passwordEnabled, ...authorization});

@@ -16,6 +16,7 @@ import tempfile
 
 TABLES = {"app_user", "forward", "node", "speed_limit", "statistics_flow",
           "tunnel", "user_tunnel", "vite_config"}
+PASSKEY_TABLES = {"passkey_credential", "passkey_policy"}
 IDENT = r'(?:\x60(?:[^\x60]|\x60\x60)+\x60|"(?:[^"]|"")+"|[A-Za-z_][A-Za-z_0-9]*)'
 QUALIFIED = IDENT + r'(?:\s*\.\s*' + IDENT + r')?'
 MAX_STATEMENT = 32 * 1024 * 1024
@@ -47,7 +48,7 @@ def table_name(name, mysql):
     table = parts[-1]
     if mysql and table == "user":
         table = "app_user"
-    if table not in TABLES:
+    if table not in TABLES | PASSKEY_TABLES:
         fail("Unexpected business table in backup")
     return table
 
@@ -273,9 +274,9 @@ class Importer:
     def __init__(self, conn, mysql):
         self.conn, self.mysql = conn, mysql
         self.definitions, self.seen, self.watermarks = {}, set(), {}
-        self.counts = dict.fromkeys(TABLES, 0)
+        self.counts = dict.fromkeys(TABLES | PASSKEY_TABLES, 0)
         self.types = {table: {row[1]: row[2].lower() for row in conn.execute("PRAGMA table_info(" + quote(table) + ")")}
-                      for table in TABLES}
+                      for table in TABLES | PASSKEY_TABLES}
 
     def validate_columns(self, table, columns):
         if len(columns) != len(set(columns)) or set(columns) != set(self.types[table]):
@@ -372,8 +373,8 @@ class Importer:
                 continue
             fail("Unsupported statement in backup; no data has been published")
 
-        if self.seen != TABLES:
-            fail("Backup does not contain all eight expected Flux tables")
+        if self.seen not in (TABLES, TABLES | PASSKEY_TABLES):
+            fail("Backup must contain all eight business tables, optionally both Passkey tables")
         if not self.counts["app_user"]:
             fail("Backup contains no users; refusing to initialize default credentials")
         if not self.conn.execute("SELECT 1 FROM app_user WHERE role_id=0 LIMIT 1").fetchone():
@@ -384,6 +385,8 @@ class Importer:
             actual, largest = self.conn.execute("SELECT count(*), coalesce(max(id),0) FROM " + quote(table)).fetchone()
             if actual != count:
                 fail("Row count mismatch in " + table)
+            if table == "passkey_policy":
+                continue  # Singleton ID has no sequence.
             mark = max(largest, self.watermarks.get(table, 0), 0)
             if not self.conn.execute("UPDATE sqlite_sequence SET seq=? WHERE name=?", (mark, table)).rowcount:
                 self.conn.execute("INSERT INTO sqlite_sequence(name,seq) VALUES (?,?)", (table, mark))
@@ -506,6 +509,8 @@ def import_backup(destination, directory, name, schema, max_bytes):
             conn.execute("BEGIN IMMEDIATE")
             with plain.open("r", encoding="utf-8-sig", newline="") as stream:
                 Importer(conn, mysql).parse(stream)
+            if conn.execute("PRAGMA foreign_key_check").fetchone():
+                fail("Passkey references a missing user")
             conn.execute("CREATE TABLE _flux_legacy_import (id INTEGER PRIMARY KEY CHECK(id=1), digest TEXT NOT NULL, source_type TEXT NOT NULL)")
             conn.execute("INSERT INTO _flux_legacy_import VALUES (1,?,?)", (digest, engine))
             conn.commit()

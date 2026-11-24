@@ -16,6 +16,7 @@ import tempfile
 
 TABLES = ("app_user", "node", "tunnel", "speed_limit", "forward",
           "user_tunnel", "statistics_flow", "vite_config")
+PASSKEY_TABLES = ("passkey_credential", "passkey_policy")
 BATCH = 500
 
 
@@ -62,10 +63,10 @@ def copy_tables(source, target):
         meta.execute("""SELECT table_name FROM information_schema.tables
             WHERE table_schema=%s AND table_type='BASE TABLE'""", (schema,))
         actual_tables = {row[0] for row in meta.fetchall()}
-        if actual_tables != set(TABLES):
-            raise ValueError("Source must contain exactly the eight expected business tables")
+        if actual_tables not in (set(TABLES), set(TABLES + PASSKEY_TABLES)):
+            raise ValueError("Source must contain the eight business tables, optionally both Passkey tables")
 
-        for table in TABLES:
+        for table in TABLES + (PASSKEY_TABLES if set(PASSKEY_TABLES) <= actual_tables else ()):
             columns = [row[1] for row in target.execute("PRAGMA table_info(" + identifier(table) + ")")]
             meta.execute("""SELECT column_name FROM information_schema.columns
                 WHERE table_schema=%s AND table_name=%s""", (schema, table))
@@ -97,6 +98,9 @@ def copy_tables(source, target):
 
             # Preserve the source identity high-water mark (even if high IDs
             # were deleted), not just MAX(id). A never-used sequence may be NULL.
+            if table == "passkey_policy":
+                print(f"{table}: {count} rows verified", flush=True)
+                continue  # Singleton ID has no sequence.
             meta.execute("SELECT pg_get_serial_sequence(%s, 'id')", (identifier(schema) + "." + identifier(table),))
             sequence = meta.fetchone()[0]
             if not sequence:
@@ -135,6 +139,8 @@ def migrate(destination, schema_path):
             target.execute("BEGIN IMMEDIATE")
             with psycopg.connect() as source:
                 copy_tables(source, target)
+            if target.execute("PRAGMA foreign_key_check").fetchone():
+                raise ValueError("Passkey references a missing user")
             target.commit()
             if target.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                 raise ValueError("SQLite integrity_check failed")

@@ -53,7 +53,25 @@ def main():
         finally:
             with psycopg.connect() as conn:
                 conn.execute("ALTER TABLE vite_config DROP COLUMN incompatible_extra")
-    print("SQLite migration, row verification, identity watermark and rollback passed")
+        # A current PostgreSQL source additionally contains the two security
+        # tables; verify that passkey-only deployments survive the cutover.
+        schema = ROOT.parent / "springboot-backend/src/main/resources/db/init/schema.sql"
+        passkey_ddl = schema.read_text().split("-- Passkey tables are additive", 1)[1].split("\n", 1)[1]
+        with psycopg.connect() as conn:
+            conn.execute(passkey_ddl)
+            conn.execute("INSERT INTO passkey_credential(user_id,rp_id,credential_id,user_handle,public_key_cose,signature_count,label,created_at,last_used_at,backup_eligible,backed_up) VALUES(1,'localhost','Y3JlZA','dXNlcg','Y29zZQ',7,'ci',1,2,0,0)")
+            conn.execute("INSERT INTO passkey_policy VALUES(1,0)")
+        try:
+            secured = Path(directory) / "secured.db"
+            run(secured, True)
+            with closing(sqlite3.connect(secured)) as conn:
+                assert conn.execute("SELECT password_enabled FROM passkey_policy").fetchone() == (0,)
+                assert conn.execute("SELECT credential_id,signature_count FROM passkey_credential").fetchone() == ("Y3JlZA", 7)
+                assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        finally:
+            with psycopg.connect() as conn:
+                conn.execute("DROP TABLE passkey_credential, passkey_policy")
+    print("SQLite migration, row verification, identity watermark, Passkey preservation and rollback passed")
 
 
 if __name__ == "__main__":
