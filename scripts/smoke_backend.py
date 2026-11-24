@@ -168,6 +168,11 @@ def main():
     tid = int(sql(f"INSERT INTO tunnel(name,in_node_id,in_ip,out_node_id,out_ip,type,flow,created_time,updated_time,status) VALUES ('ci-smoke-tunnel',{nid},'127.0.0.1',{nid},'127.0.0.1',1,1,1,1,1) RETURNING id"))
     fid = int(sql(f"INSERT INTO forward(user_id,user_name,name,tunnel_id,in_port,remote_addr,created_time,updated_time,status) VALUES ({uid},'ci_smoke_user','ci-smoke-forward',{tid},1234,'example:80',1,1,1) RETURNING id"))
     pid = int(sql(f"INSERT INTO user_tunnel(user_id,tunnel_id,num,flow,flow_reset_time,exp_time,status) VALUES ({uid},{tid},10,100,0,2727251700000,1) RETURNING id"))
+    # Existing node changes must batch-update tunnel addresses, not only the
+    # empty-list case exercised during the WebSocket SetProtocol test.
+    post("node/update", dict(node, id=nid, ip="127.0.0.2", serverIp="127.0.0.3",
+                            http=1, tls=0, socks=0), admin)
+    assert sql(f"SELECT in_ip || ',' || out_ip FROM tunnel WHERE id={tid}") == "127.0.0.2,127.0.0.3"
     assert any(item["id"] == fid for item in post("forward/list", token=ordinary))
     post("tunnel/list", token=admin)
     post("speed-limit/list", token=admin)

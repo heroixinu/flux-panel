@@ -6,8 +6,20 @@ metrics="$2"
 name="flux-backend-smoke"
 mkdir -p "$(dirname "$metrics")"
 cleanup() {
+  local result=$?
+  trap - EXIT
   docker logs "$name" > "$metrics.log" 2>&1 || true
+  if [[ "$result" != 0 ]]; then
+    cat "$metrics.log" >&2
+  fi
   docker rm -f "$name" >/dev/null 2>&1 || true
+  exit "$result"
+}
+check_logs() {
+  if grep -E 'MissingReflectionRegistrationError|MissingResourceRegistrationError|Unexpected error occurred in scheduled task' "$1"; then
+    echo "Backend contains Native metadata or scheduled task errors" >&2
+    return 1
+  fi
 }
 trap cleanup EXIT
 start() {
@@ -53,6 +65,7 @@ peak=$(docker exec "$name" cat /sys/fs/cgroup/memory.peak | tr -d '\r')
 docker stop -t 35 "$name"
 [[ "$(docker inspect -f '{{.State.OOMKilled}}' "$name")" == false ]]
 docker logs "$name" > "$metrics.first.log" 2>&1
+check_logs "$metrics.first.log"
 docker rm "$name"
 restart=$(start)
 python scripts/smoke_backend.py --restart
@@ -61,3 +74,5 @@ printf '{"ready_ms":%s,"restart_ready_ms":%s,"idle_cgroup_bytes":%s,"idle_rss_by
 cat "$metrics"
 docker stop -t 35 "$name"
 [[ "$(docker inspect -f '{{.State.OOMKilled}}' "$name")" == false ]]
+docker logs "$name" > "$metrics.log" 2>&1
+check_logs "$metrics.log"

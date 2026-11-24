@@ -7,10 +7,12 @@ import com.admin.controller.FlowController;
 import com.admin.entity.*;
 import com.admin.service.impl.ForwardServiceImpl;
 import com.admin.service.impl.TunnelServiceImpl;
+import org.springframework.aot.hint.ExecutableMode;
 import org.springframework.aot.hint.MemberCategory;
+import org.mybatis.spring.SqlSessionTemplate;
+import java.util.List;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
-import org.springframework.aot.hint.annotation.RegisterReflectionForBinding;
 
 /**
  * MyBatis-Plus supplies mapper AOT integration. These hints cover application-owned
@@ -22,6 +24,12 @@ public final class FluxRuntimeHints implements RuntimeHintsRegistrar {
         hints.resources().registerPattern("db/init/*.sql");
         hints.resources().registerPattern("mapper/*Mapper.xml");
         hints.resources().registerPattern("logback-spring.xml");
+
+        // MyBatis-Plus AbstractRepository resolves the session factory through
+        // MyBatis MetaObject before saveBatch/updateBatchById. A queried-only
+        // getter is not sufficient for invocation in GraalVM Native Image.
+        hints.reflection().registerType(SqlSessionTemplate.class,
+                hint -> hint.withMethod("getSqlSessionFactory", List.of(), ExecutableMode.INVOKE));
 
         Class<?>[] models = {
                 BaseEntity.class, Forward.class, Node.class, SpeedLimit.class,
