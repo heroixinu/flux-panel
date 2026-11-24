@@ -2,21 +2,23 @@ name: JVM and Native Image verification
 
 on:
   push:
-    branches: [codex/graalvm-native]
+    branches: [codex/graalvm-native, codex/sqlite-default]
     tags: ['[0-9]*']
     paths:
       - 'springboot-backend/**'
-      - 'scripts/smoke_backend.py'
-      - 'scripts/ci_backend_container.sh'
-      - 'scripts/ci_aot_preflight.sh'
+      - 'scripts/**'
+      - 'docker-compose*.yml'
+      - 'panel_install.sh'
+      - 'docs/sqlite-operations.md'
       - '.github/workflows/native-image.yml'
   pull_request:
-    branches: [main, codex/postgresql-support]
+    branches: [main, codex/postgresql-support, codex/graalvm-native]
     paths:
       - 'springboot-backend/**'
-      - 'scripts/smoke_backend.py'
-      - 'scripts/ci_backend_container.sh'
-      - 'scripts/ci_aot_preflight.sh'
+      - 'scripts/**'
+      - 'docker-compose*.yml'
+      - 'panel_install.sh'
+      - 'docs/sqlite-operations.md'
       - '.github/workflows/native-image.yml'
   workflow_dispatch:
 
@@ -53,6 +55,7 @@ jobs:
           --health-timeout 5s
           --health-retries 15
     env:
+      FLUX_PG_CONTAINER: ${{ job.services.postgres.id }}
       PGHOST: 127.0.0.1
       PGPORT: '5432'
       PGDATABASE: flux
@@ -102,6 +105,9 @@ jobs:
       - name: Package application with Spring AOT
         if: matrix.runtime == 'native'
         working-directory: springboot-backend
+        env:
+          DB_TYPE: sqlite
+          DB_PATH: /tmp/flux-aot-build.db
         run: bash ci/mvn_retry.sh aot-build.log -Pnative -DskipTests package
       # Save before any runtime test can fail; dependency cache must survive red CI.
       - name: Save resolved Native Maven dependencies
@@ -113,10 +119,15 @@ jobs:
       - name: Run AOT JVM regression before Native compilation
         if: matrix.runtime == 'native'
         working-directory: springboot-backend
-        run: bash ../scripts/ci_aot_preflight.sh target/admin-0.0.1-SNAPSHOT.jar
+        run: |
+          bash ../scripts/ci_aot_preflight.sh target/admin-0.0.1-SNAPSHOT.jar sqlite
+          bash ../scripts/ci_aot_preflight.sh target/admin-0.0.1-SNAPSHOT.jar postgresql
       - name: Compile Native Image
         if: matrix.runtime == 'native'
         working-directory: springboot-backend
+        env:
+          DB_TYPE: sqlite
+          DB_PATH: /tmp/flux-aot-build.db
         run: |
           set -euo pipefail
           native-image --version
@@ -136,8 +147,22 @@ jobs:
       - name: Build JVM Image from prebuilt JAR (no Maven downloads)
         if: matrix.runtime == 'jvm'
         run: docker build --target prebuilt -t flux-backend:ci springboot-backend
-      - name: Test the actual container and record resource metrics
-        run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}.json
+      - name: Test default SQLite container, persistence and backup recovery
+        run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}-sqlite.json sqlite
+      - name: Test legacy PostgreSQL container and record resource metrics
+        run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}-postgresql.json postgresql
+      - name: Compare idle deployment memory
+        run: |
+          python - <<'PY'
+          import json, pathlib, os
+          reports = {r["engine"]: r for p in pathlib.Path("reports").glob("*.json") for r in [json.loads(p.read_text())]}
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              print("| Engine | Backend idle MiB | Combined idle MiB | Ready ms |", file=out)
+              print("|---|---:|---:|---:|", file=out)
+              for key in ("sqlite", "postgresql"):
+                  r = reports[key]
+                  print(f"| {key} | {r['idle_cgroup_bytes']/1048576:.2f} | {r['combined_idle_cgroup_bytes']/1048576:.2f} | {r['ready_ms']} |", file=out)
+          PY
       - name: Upload test reports and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -148,7 +173,7 @@ jobs:
             springboot-backend/native-build.log
             springboot-backend/jvm-build.log
             springboot-backend/aot-build.log
-            springboot-backend/aot-preflight.log
+            springboot-backend/aot-preflight-*.log
           if-no-files-found: warn
       - name: Upload verified native executable
         if: matrix.runtime == 'native'
@@ -160,7 +185,7 @@ jobs:
 
   publish-native:
     # Experimental branch only, or version tag. No publication for PRs.
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/codex/graalvm-native' || startsWith(github.ref, 'refs/tags/'))
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/codex/graalvm-native' || github.ref == 'refs/heads/codex/sqlite-default' || startsWith(github.ref, 'refs/tags/'))
     needs: verify
     runs-on: ubuntu-24.04
     steps:
@@ -183,6 +208,8 @@ jobs:
           tags=(-t "$IMAGE:sha-$(echo "$GITHUB_SHA" | cut -c1-7)-native")
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             tags+=(-t "$IMAGE:$GITHUB_REF_NAME-native")
+          elif [[ "$GITHUB_REF" == refs/heads/codex/sqlite-default ]]; then
+            tags+=(-t "$IMAGE:sqlite-native")
           else
             tags+=(-t "$IMAGE:graalvm-native")
           fi

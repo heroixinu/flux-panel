@@ -6,12 +6,14 @@ on:
       - main
       - codex/postgresql-support
       - codex/graalvm-native
+      - codex/sqlite-default
     tags:
       - '[0-9]*'
   pull_request:
     branches:
       - main
       - codex/postgresql-support
+      - codex/graalvm-native
   workflow_dispatch:
 
 permissions:
@@ -24,7 +26,7 @@ concurrency:
 
 jobs:
   test-postgres:
-    name: PostgreSQL integration and migration
+    name: SQLite and PostgreSQL integration and migration
     runs-on: ubuntu-latest
     env:
       PGHOST: 127.0.0.1
@@ -114,6 +116,35 @@ jobs:
             exit 1
           fi
           test "$(psql -Atc 'SELECT count(*) FROM forward')" = 0
+      - name: Verify PostgreSQL to SQLite migration and no-overwrite rollback
+        env:
+          PGDATABASE: flux_migration
+        run: python scripts/test_sqlite_migration.py
+      - name: Check scripts and Compose variants
+        env:
+          JWT_SECRET: integration-test-secret-at-least-32-characters
+          DB_NAME: flux
+          DB_USER: flux
+          DB_PASSWORD: test-password
+          BACKEND_PORT: '6365'
+          FRONTEND_PORT: '6366'
+        run: |
+          set -euo pipefail
+          bash -n panel_install.sh scripts/ci_backend_container.sh scripts/ci_aot_preflight.sh
+          python -m py_compile scripts/*.py
+          for version in 4 6; do
+            docker compose -f "docker-compose-v$version.yml" config -q
+            docker compose -f "docker-compose-postgresql-v$version.yml" config -q
+            test "$(docker compose -f "docker-compose-v$version.yml" config --services | wc -l)" = 2
+            test "$(docker compose -f "docker-compose-postgresql-v$version.yml" config --services | wc -l)" = 3
+          done
+      - name: Run SQLite default-engine integration tests
+        working-directory: springboot-backend
+        env:
+          DB_PATH: ${{ runner.temp }}/flux-integration.db
+          JWT_SECRET: integration-test-secret-at-least-32-characters
+          LOG_DIR: /tmp/flux-sqlite-test-logs
+        run: bash ci/mvn_retry.sh maven-sqlite-test.log test
       - name: Confirm schema starts empty before testing backend auto-initialization
         run: |
           set -euo pipefail
@@ -133,6 +164,16 @@ jobs:
           bash ci/mvn_retry.sh maven-test.log package
           mkdir -p jvm
           cp target/admin-0.0.1-SNAPSHOT.jar jvm/app.jar
+      - name: Upload integration logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-integration-logs
+          path: |
+            springboot-backend/maven-sqlite-test.log
+            springboot-backend/maven-test.log
+            springboot-backend/target/surefire-reports/
+          if-no-files-found: warn
       - name: Upload tested JVM JAR
         uses: actions/upload-artifact@v4
         with:
@@ -215,6 +256,8 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-,format=short
+            type=raw,value=sqlite-default,enable=${{ github.ref == 'refs/heads/codex/sqlite-default' }}
+            type=raw,value=sqlite-jvm,enable=${{ github.ref == 'refs/heads/codex/sqlite-default' && matrix.image == 'flux-panel-backend' }}
             type=raw,value=graalvm-jvm,enable=${{ github.ref == 'refs/heads/codex/graalvm-native' }}
             type=raw,value=postgresql-support,enable=${{ github.ref == 'refs/heads/codex/postgresql-support' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
@@ -252,6 +295,9 @@ jobs:
             dist/gost-amd64 \
             install.sh panel_install.sh \
             docker-compose-v4.yml docker-compose-v6.yml \
+            docker-compose-postgresql-v4.yml docker-compose-postgresql-v6.yml \
+            springboot-backend/src/main/resources/db/init/sqlite-schema.sql \
+            scripts/migrate_postgresql_to_sqlite.py docs/sqlite-operations.md \
             gost.sql gost-schema.sql \
             scripts/migrate_mysql_to_postgresql.py \
             scripts/requirements-migration.txt \
