@@ -1,25 +1,17 @@
 spring:
   datasource:
-    driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME}
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
+    # DatabaseDefaults selects SQLite or PostgreSQL at runtime (including Native Image).
     hikari:
-      max-lifetime: 500000
       connection-timeout: 30000
-      idle-timeout: 120000
-      maximum-pool-size: 5
-      minimum-idle: 1
       pool-name: HikariCP
       auto-commit: true
       connection-test-query: SELECT 1
-  # Initialize both the bundled Docker PostgreSQL and external (1Panel) databases.
+  # Initialize the selected database before serving requests.
   # The scripts are idempotent and never overwrite existing users/settings.
   sql:
     init:
       mode: ${DB_SQL_INIT_MODE:always}
       continue-on-error: false
-      schema-locations: classpath:/db/init/schema.sql
       data-locations: classpath:/db/init/data.sql
   servlet:
     multipart:
@@ -49,4 +41,4 @@ mybatis-plus:
 #    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 jwt-secret: ${JWT_SECRET}
-log-dir: ${LOG_DIR}
+log-dir: ${LOG_DIR:./logs}

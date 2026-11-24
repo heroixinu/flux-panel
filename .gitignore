@@ -261,3 +261,12 @@ commit.sh
 /springboot-backend/native/
 /reports/
 /springboot-backend/jvm/
+
+# SQLite runtime sidecars and backup files
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm

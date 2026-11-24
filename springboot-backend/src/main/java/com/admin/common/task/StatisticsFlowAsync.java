@@ -84,7 +84,7 @@ public class StatisticsFlowAsync {
             statisticsFlowList.add(statisticsFlow);
         }
 
-        statisticsFlowService.saveBatch(statisticsFlowList);
+        statisticsFlowService.saveSamples(statisticsFlowList);
     }
 
 }

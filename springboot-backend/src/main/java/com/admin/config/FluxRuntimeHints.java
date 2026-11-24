@@ -22,6 +22,11 @@ public final class FluxRuntimeHints implements RuntimeHintsRegistrar {
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader loader) {
         hints.resources().registerPattern("db/init/*.sql");
+        hints.resources().registerPattern("META-INF/spring.factories");
+        hints.reflection().registerType(org.springframework.aot.hint.TypeReference.of("org.sqlite.JDBC"),
+                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
+        hints.reflection().registerType(org.springframework.aot.hint.TypeReference.of("org.postgresql.Driver"),
+                MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
         hints.resources().registerPattern("mapper/*Mapper.xml");
         hints.resources().registerPattern("logback-spring.xml");
 

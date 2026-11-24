@@ -16,5 +16,15 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class StatisticsFlowServiceImpl extends ServiceImpl<StatisticsFlowMapper, StatisticsFlow> implements StatisticsFlowService {
-
+    @Override
+    @org.springframework.transaction.annotation.Transactional
+    public void saveSamples(java.util.List<StatisticsFlow> samples) {
+        // SQLite JDBC cannot return all generated keys for a multi-row batch.
+        for (StatisticsFlow sample : samples) {
+            if (!save(sample)) {
+                throw new IllegalStateException("Could not persist statistics sample");
+            }
+        }
+    }
 }
+

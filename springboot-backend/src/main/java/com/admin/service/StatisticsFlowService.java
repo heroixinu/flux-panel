@@ -12,5 +12,7 @@ import com.baomidou.mybatisplus.spring.service.IService;
  * @since 2025-08-14
  */
 public interface StatisticsFlowService extends IService<StatisticsFlow> {
-
+    /** Insert each row with its own generated ID, in one transaction. */
+    void saveSamples(java.util.List<StatisticsFlow> samples);
 }
+
