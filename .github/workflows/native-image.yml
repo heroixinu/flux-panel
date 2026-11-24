@@ -8,6 +8,8 @@ on:
       - 'springboot-backend/**'
       - 'scripts/smoke_backend.py'
       - 'scripts/ci_backend_container.sh'
+      - 'scripts/ci_aot_preflight.sh'
+      - 'scripts/mvn_native_retry.sh'
       - '.github/workflows/native-image.yml'
   pull_request:
     branches: [main, codex/postgresql-support]
@@ -15,6 +17,8 @@ on:
       - 'springboot-backend/**'
       - 'scripts/smoke_backend.py'
       - 'scripts/ci_backend_container.sh'
+      - 'scripts/ci_aot_preflight.sh'
+      - 'scripts/mvn_native_retry.sh'
       - '.github/workflows/native-image.yml'
   workflow_dispatch:
 
@@ -88,22 +92,22 @@ jobs:
           key: native-maven-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('springboot-backend/pom.xml') }}
           restore-keys: |
             native-maven-${{ runner.os }}-${{ runner.arch }}-
+            setup-java-Linux-x64-maven-
+      - name: Package application with Spring AOT
+        if: matrix.runtime == 'native'
+        working-directory: springboot-backend
+        run: bash ../scripts/mvn_native_retry.sh aot-build.log -Pnative -DskipTests package
+      - name: Run AOT JVM regression before Native compilation
+        if: matrix.runtime == 'native'
+        working-directory: springboot-backend
+        run: bash ../scripts/ci_aot_preflight.sh target/admin-0.0.1-SNAPSHOT.jar
       - name: Compile Native Image
         if: matrix.runtime == 'native'
         working-directory: springboot-backend
         run: |
           set -euo pipefail
           native-image --version
-          # Only retry transient repository/network errors, not Java/AOT/native compiler failures.
-          for attempt in 1 2 3 4; do
-            if mvn -B -ntp -U -Pnative -DskipTests native:compile 2>&1 | tee native-build.log; then
-              break
-            fi
-            if [[ "$attempt" == 4 ]] || ! grep -Ei 'HTTP (Status: )?(429|502|503|504)|status code: (429|502|503|504)|Read timed out|Connection reset|Connection timed out|Temporary failure in name resolution' native-build.log; then
-              exit 1
-            fi
-            sleep "$((attempt * 20))"
-          done
+          bash ../scripts/mvn_native_retry.sh native-build.log -Pnative -DskipTests native:compile
           mkdir -p native
           cp target/flux-panel native/flux-panel
           file native/flux-panel
@@ -122,6 +126,8 @@ jobs:
           path: |
             reports/
             springboot-backend/native-build.log
+            springboot-backend/aot-build.log
+            springboot-backend/aot-preflight.log
           if-no-files-found: warn
       - name: Upload verified native executable
         if: matrix.runtime == 'native'

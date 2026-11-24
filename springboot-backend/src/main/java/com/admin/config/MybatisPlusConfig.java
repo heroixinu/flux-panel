@@ -8,7 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@MapperScan("com.admin.mapper")
+// Explicit bean reference survives Spring's generated AOT bean definitions.
+@MapperScan(basePackages = "com.admin.mapper", sqlSessionTemplateRef = "sqlSessionTemplate")
 public class MybatisPlusConfig {
 
     @Bean

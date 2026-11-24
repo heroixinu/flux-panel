@@ -13,6 +13,10 @@ import com.admin.service.UserService;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
+import org.mybatis.spring.SqlSessionTemplate;
+import org.mybatis.spring.mapper.MapperFactoryBean;
+import org.springframework.beans.factory.config.RuntimeBeanReference;
+import org.springframework.context.ConfigurableApplicationContext;
 import javax.sql.DataSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
@@ -33,6 +37,23 @@ class PostgresqlIntegrationTests {
     @Autowired ForwardMapper forwards;
     @Autowired FlowController flows;
     @Autowired StatisticsFlowService statistics;
+    @Autowired ConfigurableApplicationContext context;
+    @Autowired SqlSessionTemplate sqlSessionTemplate;
+
+    @Test
+    void allMapperFactoriesHaveExplicitSessionTemplateReferences() {
+        // AOT cannot depend on implicit AUTOWIRE_BY_TYPE for mapper factories.
+        for (String name : List.of("forwardMapper", "nodeMapper", "speedLimitMapper",
+                "statisticsFlowMapper", "tunnelMapper", "userMapper", "userTunnelMapper",
+                "viteConfigMapper")) {
+            var definition = context.getBeanFactory().getBeanDefinition(name);
+            var reference = assertInstanceOf(RuntimeBeanReference.class,
+                    definition.getPropertyValues().get("sqlSessionTemplate"), name);
+            assertEquals("sqlSessionTemplate", reference.getBeanName(), name);
+            var factory = context.getBean("&" + name, MapperFactoryBean.class);
+            assertSame(sqlSessionTemplate, factory.getSqlSession(), name);
+        }
+    }
 
     @Test
     void initializesAllTablesAndDoesNotChangeExistingDataOnRestart() {
