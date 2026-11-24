@@ -9,31 +9,59 @@ export LC_ALL=C
 
 # 本 Fork 的安装文件可从分支（预览）或发布标签（正式版）读取。
 FLUX_REPO="${FLUX_REPO:-heroixinu/flux-panel}"
-FLUX_SOURCE_REF="${FLUX_SOURCE_REF:-1.5.0}"
+FLUX_SOURCE_REF="${FLUX_SOURCE_REF:-codex/sqlite-default}"
 FLUX_IMAGE_TAG="${FLUX_IMAGE_TAG:-${FLUX_SOURCE_REF##*/}}"
+if [[ "$FLUX_IMAGE_TAG" == sqlite-default ]]; then
+  FLUX_BACKEND_IMAGE_TAG="${FLUX_BACKEND_IMAGE_TAG:-sqlite-native}"
+else
+  FLUX_BACKEND_IMAGE_TAG="${FLUX_BACKEND_IMAGE_TAG:-${FLUX_IMAGE_TAG}-native}"
+fi
+FLUX_DB_TYPE="${FLUX_DB_TYPE:-sqlite}"
+if [[ "$FLUX_DB_TYPE" != sqlite && "$FLUX_DB_TYPE" != postgresql ]]; then
+  echo "FLUX_DB_TYPE must be sqlite or postgresql" >&2
+  exit 1
+fi
+if [[ ! "$FLUX_BACKEND_IMAGE_TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "Invalid backend image tag" >&2
+  exit 1
+fi
 if [[ ! "$FLUX_SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || ! "$FLUX_IMAGE_TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "Invalid source ref or image tag" >&2
   exit 1
 fi
 RAW_BASE="https://raw.githubusercontent.com/${FLUX_REPO}/${FLUX_SOURCE_REF}"
-DOCKER_COMPOSEV4_URL="${RAW_BASE}/docker-compose-v4.yml"
-DOCKER_COMPOSEV6_URL="${RAW_BASE}/docker-compose-v6.yml"
 GOST_SQL_URL="${RAW_BASE}/gost.sql"
 GOST_SCHEMA_URL="${RAW_BASE}/gost-schema.sql"
 COUNTRY=$(curl -fsS --max-time 5 https://ipinfo.io/country 2>/dev/null || true)
 if [ "$COUNTRY" = "CN" ]; then
-  DOCKER_COMPOSEV4_URL="https://ghfast.top/${DOCKER_COMPOSEV4_URL}"
-  DOCKER_COMPOSEV6_URL="https://ghfast.top/${DOCKER_COMPOSEV6_URL}"
   GOST_SQL_URL="https://ghfast.top/${GOST_SQL_URL}"
   GOST_SCHEMA_URL="https://ghfast.top/${GOST_SCHEMA_URL}"
 fi
 
 # 根据IPv6支持情况选择docker-compose URL
 get_docker_compose_url() {
-  if check_ipv6_support > /dev/null 2>&1; then
-    echo "$DOCKER_COMPOSEV6_URL"
+  local prefix=docker-compose
+  [[ "$FLUX_DB_TYPE" == postgresql ]] && prefix=docker-compose-postgresql
+  local version=4
+  if check_ipv6_support > /dev/null 2>&1; then version=6; fi
+  local url="${RAW_BASE}/${prefix}-v${version}.yml"
+  if [[ "$COUNTRY" == CN ]]; then url="https://ghfast.top/$url"; fi
+  echo "$url"
+}
+
+# Detect the installed engine from the Compose file, never from a requested new default.
+detect_installed_database() {
+  if [[ ! -f docker-compose.yml || ! -f .env ]]; then
+    echo "Missing existing Compose or .env" >&2
+    return 1
+  fi
+  if grep -q 'gost-postgres' docker-compose.yml; then
+    FLUX_DB_TYPE=postgresql
+  elif grep -Eq 'DB_TYPE:[[:space:]]*sqlite' docker-compose.yml && [[ -s data/flux.db ]]; then
+    FLUX_DB_TYPE=sqlite
   else
-    echo "$DOCKER_COMPOSEV4_URL"
+    echo "Unknown database configuration or missing SQLite file; refusing automatic upgrade" >&2
+    return 1
   fi
 }
 
@@ -187,17 +215,19 @@ get_config_params() {
   read -p "后端端口（默认 6365）: " BACKEND_PORT
   BACKEND_PORT=${BACKEND_PORT:-6365}
 
-  DB_NAME=$(generate_random)
-  DB_USER=$(generate_random)
-  DB_PASSWORD=$(generate_random)
-  JWT_SECRET=$(generate_random)
+  if [[ "$FLUX_DB_TYPE" == postgresql ]]; then
+    DB_NAME=$(generate_random)
+    DB_USER=$(generate_random)
+    DB_PASSWORD=$(generate_random)
+  fi
+  JWT_SECRET="$(generate_random)$(generate_random)"
 }
 
 # 安装功能
 install_panel() {
   echo "🚀 开始安装面板..."
   check_docker
-  if [[ -e docker-compose.yml || -e .env ]] || docker volume inspect mysql_data >/dev/null 2>&1 || docker volume inspect postgres_data >/dev/null 2>&1 || docker inspect gost-mysql >/dev/null 2>&1 || docker inspect gost-postgres >/dev/null 2>&1; then
+  if [[ -e docker-compose.yml || -e .env || -e data/flux.db || -e data/flux.db-wal || -e data/flux.db-shm ]] || docker volume inspect mysql_data >/dev/null 2>&1 || docker volume inspect postgres_data >/dev/null 2>&1 || docker inspect springboot-backend >/dev/null 2>&1 || docker inspect gost-mysql >/dev/null 2>&1 || docker inspect gost-postgres >/dev/null 2>&1; then
     echo "❌ 检测到现有安装或数据库卷；请先备份并使用更新或迁移流程。"
     return 1
   fi
@@ -208,9 +238,13 @@ install_panel() {
   echo "📡 选择配置文件：$(basename "$DOCKER_COMPOSE_URL")"
   curl -fL -o docker-compose.yml "$DOCKER_COMPOSE_URL"
 
-  # 初始化文件必须来自与 Compose 相同的版本。
-  curl -fL -o gost-schema.sql "$GOST_SCHEMA_URL"
-  curl -fL -o gost.sql "$GOST_SQL_URL"
+  # Only PostgreSQL installations need server entrypoint SQL.
+  if [[ "$FLUX_DB_TYPE" == postgresql ]]; then
+    curl -fL -o gost-schema.sql "$GOST_SCHEMA_URL"
+    curl -fL -o gost.sql "$GOST_SQL_URL"
+  else
+    install -d -m 0700 data
+  fi
   echo "✅ 文件准备完成"
 
   # 自动检测并配置 IPv6 支持
@@ -219,15 +253,17 @@ install_panel() {
     configure_docker_ipv6
   fi
 
+  umask 077
   cat > .env <<EOF
-DB_NAME=$DB_NAME
-DB_USER=$DB_USER
-DB_PASSWORD=$DB_PASSWORD
 JWT_SECRET=$JWT_SECRET
 FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_PORT=$BACKEND_PORT
 IMAGE_TAG=$FLUX_IMAGE_TAG
+BACKEND_IMAGE_TAG=$FLUX_BACKEND_IMAGE_TAG
 EOF
+  if [[ "$FLUX_DB_TYPE" == postgresql ]]; then
+    printf 'DB_NAME=%s\nDB_USER=%s\nDB_PASSWORD=%s\n' "$DB_NAME" "$DB_USER" "$DB_PASSWORD" >> .env
+  fi
 
   echo "🚀 启动 docker 服务..."
   $DOCKER_CMD up -d
@@ -242,9 +278,29 @@ EOF
 
 }
 
-# 导出 PostgreSQL 备份，保留数据库凭据在容器内部。
+# Export a consistent SQLite online backup or a PostgreSQL custom-format dump.
 export_migration_sql() {
   check_docker
+  detect_installed_database || return 1
+  if [[ "$FLUX_DB_TYPE" == sqlite ]]; then
+    umask 077
+    local backup_dir backup_file remote
+    backup_dir=$(mktemp -d ./sqlite_backup_XXXXXXXX)
+    backup_file="$backup_dir/flux.db"
+    remote=$(docker exec springboot-backend mktemp /tmp/flux-backup.XXXXXXXX) || { rmdir "$backup_dir"; return 1; }
+    if ! docker exec springboot-backend sqlite3 -bail -cmd '.timeout 10000' /app/data/flux.db ".backup '$remote'" ||
+       [[ "$(docker exec springboot-backend sqlite3 -bail "$remote" 'PRAGMA integrity_check;')" != ok ]] ||
+       ! docker cp "springboot-backend:$remote" "$backup_file"; then
+      docker exec springboot-backend rm -f "$remote" || true
+      rm -rf "$backup_dir"
+      echo "SQLite backup failed" >&2
+      return 1
+    fi
+    docker exec springboot-backend rm -f "$remote" || true
+    chmod 600 "$backup_file"
+    echo "SQLite backup: $backup_file"
+    return 0
+  fi
   if ! docker inspect gost-postgres >/dev/null 2>&1; then
     echo "❌ 未找到 PostgreSQL 容器，无法备份。"
     return 1
@@ -267,10 +323,7 @@ export_migration_sql() {
 # 检查现有安装后才允许替换 Compose 或启动新镜像。
 update_panel() {
   check_docker
-  if [[ ! -f docker-compose.yml || ! -f .env ]] || ! grep -q 'gost-postgres' docker-compose.yml || ! docker inspect gost-postgres >/dev/null 2>&1; then
-    echo "❌ 未确认现有 PostgreSQL 安装；MySQL 用户请先按迁移文档离线迁移。"
-    return 1
-  fi
+  detect_installed_database || return 1
   export_migration_sql || return 1
   local new_compose
   new_compose=$(mktemp ./docker-compose.yml.XXXXXX)
@@ -278,9 +331,15 @@ update_panel() {
     rm -f "$new_compose"
     return 1
   fi
-  if ! grep -q 'gost-postgres' "$new_compose"; then
+  if [[ "$FLUX_DB_TYPE" == postgresql ]]; then
+    if ! grep -q 'gost-postgres' "$new_compose"; then
+      rm -f "$new_compose"
+      echo "Refusing to replace PostgreSQL configuration with a different engine" >&2
+      return 1
+    fi
+  elif ! grep -Eq 'DB_TYPE:[[:space:]]*sqlite' "$new_compose" || grep -q 'gost-postgres' "$new_compose"; then
     rm -f "$new_compose"
-    echo "❌ 下载的 Compose 配置不是 PostgreSQL 版本。"
+    echo "Refusing to replace SQLite configuration with a different engine" >&2
     return 1
   fi
   cp docker-compose.yml docker-compose.yml.previous
@@ -291,6 +350,12 @@ update_panel() {
     rm -f .env.bak
   else
     printf "\nIMAGE_TAG=%s\n" "$FLUX_IMAGE_TAG" >> .env
+  fi
+  if grep -q '^BACKEND_IMAGE_TAG=' .env; then
+    sed -i.bak "s/^BACKEND_IMAGE_TAG=.*/BACKEND_IMAGE_TAG=$FLUX_BACKEND_IMAGE_TAG/" .env
+    rm -f .env.bak
+  else
+    printf '\nBACKEND_IMAGE_TAG=%s\n' "$FLUX_BACKEND_IMAGE_TAG" >> .env
   fi
   if ! $DOCKER_CMD pull || ! $DOCKER_CMD up -d; then
     echo "❌ 更新失败，恢复之前的 Compose 和环境变量。" >&2
@@ -308,11 +373,8 @@ uninstall_panel() {
   check_docker
 
   if [[ ! -f "docker-compose.yml" ]]; then
-    echo "⚠️ 未找到 docker-compose.yml 文件，正在下载以完成卸载..."
-    DOCKER_COMPOSE_URL=$(get_docker_compose_url)
-    echo "📡 选择配置文件：$(basename "$DOCKER_COMPOSE_URL")"
-    curl -L -o docker-compose.yml "$DOCKER_COMPOSE_URL"
-    echo "✅ docker-compose.yml 下载完成"
+    echo "Existing Compose not found; refusing to guess which deployment to remove" >&2
+    return 1
   fi
 
   read -p "确认卸载面板吗？此操作将停止并删除容器及配置，数据库卷保留 (y/N): " confirm

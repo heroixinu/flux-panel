@@ -2,9 +2,10 @@
 # CI builds on Ubuntu 24.04, so the runtime glibc matches the compiler environment.
 FROM ubuntu:24.04
 WORKDIR /app
-ENV LANG=C.UTF-8 TZ=Asia/Shanghai
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g \
+ENV LANG=C.UTF-8 TZ=Asia/Shanghai DB_PATH=/app/data/flux.db
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g sqlite3 \
     && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /app/data
 COPY --chmod=0755 native/flux-panel /app/flux-panel
 EXPOSE 6365
 ENTRYPOINT ["/app/flux-panel"]

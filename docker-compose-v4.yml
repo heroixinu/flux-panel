@@ -1,34 +1,11 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: gost-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      TZ: Asia/Shanghai
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./gost-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./gost.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
-    networks:
-      - gost-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-
   backend:
-    image: ghcr.io/heroixinu/flux-panel-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG:-1.5.0}}
+    image: ghcr.io/heroixinu/flux-panel-backend:${BACKEND_IMAGE_TAG:-sqlite-native}
     container_name: springboot-backend
     restart: unless-stopped
     environment:
-      DB_HOST: postgres
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_TYPE: sqlite
+      DB_PATH: /app/data/flux.db
       JWT_SECRET: ${JWT_SECRET}
       LOG_DIR: /app/logs
       JAVA_OPTS: "-Xms32m -Xmx192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
@@ -36,9 +13,7 @@ services:
       - "${BACKEND_PORT}:6365"
     volumes:
       - backend_logs:/app/logs
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - ./data:/app/data
     networks:
       - gost-network
     healthcheck:
@@ -49,7 +24,7 @@ services:
       start_period: 90s
 
   frontend:
-    image: ghcr.io/heroixinu/flux-panel-frontend:${IMAGE_TAG:-1.5.0}
+    image: ghcr.io/heroixinu/flux-panel-frontend:${IMAGE_TAG:-sqlite-default}
     container_name: vite-frontend
     restart: unless-stopped
     ports:
@@ -62,9 +37,6 @@ services:
 
 
 volumes:
-  postgres_data:
-    name: postgres_data
-    driver: local
   backend_logs:
     name: backend_logs
     driver: local

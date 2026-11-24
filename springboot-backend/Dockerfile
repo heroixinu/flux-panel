@@ -9,13 +9,14 @@ RUN --mount=type=cache,target=/root/.m2/repository \
 FROM eclipse-temurin:21-jre AS runtime-base
 WORKDIR /app
 ENV JAVA_OPTS="-Xms32m -Xmx192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
-ENV LANG=C.UTF-8
+ENV LANG=C.UTF-8 DB_PATH=/app/data/flux.db
 
 # curl is required by the Compose health check.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN mkdir -p /app/data
 EXPOSE 6365
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
 

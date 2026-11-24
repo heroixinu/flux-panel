@@ -23,6 +23,16 @@
 
 ## 部署流程
 
+### 此 Fork 的 SQLite + GraalVM Native 预览分支
+
+新安装默认使用内置 SQLite，无需独立数据库容器；已部署的 PostgreSQL 不会自动切换。仅在本分支 JVM / Native CI 全部通过、镜像可拉取后试用。详见 [SQLite 运行、升级、备份及迁移说明](docs/sqlite-operations.md)。
+
+```bash
+curl -fL https://raw.githubusercontent.com/heroixinu/flux-panel/codex/sqlite-default/panel_install.sh -o panel_install.sh
+chmod +x panel_install.sh
+FLUX_SOURCE_REF=codex/sqlite-default FLUX_IMAGE_TAG=sqlite-default ./panel_install.sh
+```
+
 ### 此 Fork 的 PostgreSQL 预览分支
 
 PostgreSQL 适配目前在 [codex/postgresql-support](https://github.com/heroixinu/flux-panel/tree/codex/postgresql-support) 验证中；**不要直接把旧 MySQL 数据目录挂载到 PostgreSQL**，升级请先阅读 [迁移说明](docs/postgresql-operations.md)。

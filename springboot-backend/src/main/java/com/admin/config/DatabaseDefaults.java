@@ -37,7 +37,7 @@ public final class DatabaseDefaults implements EnvironmentPostProcessor, Ordered
         if (!type.equals("sqlite") && !type.equals("postgresql")) {
             throw new IllegalArgumentException("DB_TYPE must be sqlite or postgresql");
         }
-        if (explicitUrl != null && !explicitUrl.startsWith("jdbc:" + type + ":")) {
+        if (explicitUrl != null && !explicitUrl.isBlank() && !explicitUrl.startsWith("jdbc:" + type + ":")) {
             throw new IllegalArgumentException("DB_TYPE and spring.datasource.url disagree");
         }
 
@@ -56,11 +56,11 @@ public final class DatabaseDefaults implements EnvironmentPostProcessor, Ordered
             defaults.put("spring.datasource.hikari.maximum-pool-size", 1);
             defaults.put("spring.datasource.hikari.max-lifetime", 0);
             defaults.put("spring.datasource.hikari.idle-timeout", 0);
-            defaults.put("spring.datasource.hikari.data-source-properties.busy_timeout", 10000);
-            defaults.put("spring.datasource.hikari.data-source-properties.journal_mode", "WAL");
-            defaults.put("spring.datasource.hikari.data-source-properties.synchronous", "NORMAL");
-            defaults.put("spring.datasource.hikari.data-source-properties.foreign_keys", "on");
-            defaults.put("spring.datasource.hikari.data-source-properties.cache_size", -2048);
+            defaults.put("spring.datasource.hikari.data-source-properties.[busy_timeout]", 10000);
+            defaults.put("spring.datasource.hikari.data-source-properties.[journal_mode]", "WAL");
+            defaults.put("spring.datasource.hikari.data-source-properties.[synchronous]", "FULL");
+            defaults.put("spring.datasource.hikari.data-source-properties.[foreign_keys]", "true");
+            defaults.put("spring.datasource.hikari.data-source-properties.[cache_size]", -2048);
             defaults.put("spring.sql.init.schema-locations", "classpath:/db/init/sqlite-schema.sql");
         } else {
             defaults.put("spring.datasource.driver-class-name", "org.postgresql.Driver");
