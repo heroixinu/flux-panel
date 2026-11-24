@@ -203,6 +203,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Require matching published node assets before publishing panel
+        if: github.ref == 'refs/heads/codex/sqlite-default' || startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/wait_for_node_release.sh
       - name: Publish verified AMD64 Native image
         env:
           IMAGE: ghcr.io/${{ github.repository_owner }}/flux-panel-backend
@@ -216,5 +221,9 @@ jobs:
           else
             tags+=(-t "$IMAGE:graalvm-native")
           fi
+          node_release_tag=sqlite-default
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then node_release_tag="$GITHUB_REF_NAME"; fi
           docker buildx build --platform linux/amd64 --push \
+            --build-arg FLUX_NODE_RELEASE_REPO="$GITHUB_REPOSITORY" \
+            --build-arg FLUX_NODE_RELEASE_TAG="$node_release_tag" \
             "${tags[@]}" -f springboot-backend/Dockerfile.native springboot-backend

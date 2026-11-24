@@ -224,6 +224,8 @@ jobs:
           set -euo pipefail
           mkdir -p ../dist
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/gost-amd64 .
+      - name: Verify node installer
+        run: bash scripts/test_node_installer.sh
       - name: Generate node checksum
         run: (cd dist && sha256sum gost-amd64 > gost-amd64.sha256)
       - uses: actions/upload-artifact@v4
@@ -332,9 +334,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The downloaded installer defaults to the same immutable release tag.
+          [[ "$GITHUB_REF_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+          sed "s/FLUX_RELEASE_TAG:-sqlite-default/FLUX_RELEASE_TAG:-$GITHUB_REF_NAME/" install.sh > dist/install.sh
+          bash -n dist/install.sh
           gh release create "$GITHUB_REF_NAME" \
             dist/gost-amd64 dist/gost-amd64.sha256 \
-            install.sh panel_install.sh \
+            dist/install.sh panel_install.sh \
             docker-compose-v4.yml docker-compose-v6.yml \
             docker-compose-postgresql-v4.yml docker-compose-postgresql-v6.yml \
             springboot-backend/src/main/resources/db/init/sqlite-schema.sql \

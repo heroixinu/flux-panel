@@ -8,7 +8,7 @@ get_architecture() {
             echo "amd64"
             ;;
         aarch64|arm64)
-            echo "当前版本仅发布 Linux AMD64 (x86_64) 节点，暂不支持 ARM64" >&2
+                  echo "当前版本仅发布 Linux AMD64 (x86_64) 节点，暂不支持 ARM64" >&2
             return 1
             ;;
         *)
@@ -30,16 +30,16 @@ build_download_url() {
     echo "https://github.com/$repo/releases/download/$tag/gost-${ARCH}"
 }
 
-# 下载地址
-DOWNLOAD_URL=$(build_download_url) || exit 1
 INSTALL_DIR="/etc/gost"
-COUNTRY=$(curl -fsS --max-time 5 https://ipinfo.io/country 2>/dev/null || true)
-if [ "$COUNTRY" = "CN" ]; then
-    # 拼接 URL
-    DOWNLOAD_URL="https://ghfast.top/${DOWNLOAD_URL}"
-fi
 
-
+configure_download() {
+    DOWNLOAD_URL=$(build_download_url) || return 1
+    local country
+    country=$(curl -fsS --max-time 5 https://ipinfo.io/country 2>/dev/null || true)
+    if [ "$country" = "CN" ]; then
+        DOWNLOAD_URL="https://ghfast.top/$DOWNLOAD_URL"
+    fi
+}
 
 # Download and validate before changing the installed node or stopping its service.
 download_gost() {
@@ -173,15 +173,6 @@ get_config_params() {
     fi
   fi
 }
-
-# 解析命令行参数
-while getopts "a:s:" opt; do
-  case $opt in
-    a) SERVER_ADDR="$OPTARG" ;;
-    s) SECRET="$OPTARG" ;;
-    *) echo "❌ 无效参数"; exit 1 ;;
-  esac
-done
 
 # 安装功能
 install_gost() {
@@ -342,6 +333,15 @@ uninstall_gost() {
 
 # 主逻辑
 main() {
+  configure_download || exit 1
+  local opt
+  while getopts "a:s:" opt; do
+    case $opt in
+      a) SERVER_ADDR="$OPTARG" ;;
+      s) SECRET="$OPTARG" ;;
+      *) echo "❌ 无效参数" >&2; exit 1 ;;
+    esac
+  done
   # 如果提供了命令行参数，直接执行安装
   if [[ -n "$SERVER_ADDR" && -n "$SECRET" ]]; then
     install_gost || exit 1
@@ -388,5 +388,7 @@ main() {
   done
 }
 
-# 执行主函数
-main
+# Execute only when invoked, not when sourced by regression tests.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
