@@ -5,8 +5,6 @@ import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
 import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
-import { Switch } from "@heroui/switch";
-import { Select, SelectItem } from "@heroui/select";
 import toast from 'react-hot-toast';
 import { updateConfigs } from '@/api';
 import { SettingsIcon } from '@/components/icons';
@@ -57,47 +55,6 @@ const CONFIG_ITEMS: ConfigItem[] = [
     placeholder: '请输入应用名称',
     description: '在浏览器标签页和导航栏显示的应用名称',
     type: 'input'
-  },
-  {
-    key: 'captcha_enabled',
-    label: '启用验证码',
-    description: '开启后，用户登录时需要完成验证码验证',
-    type: 'switch'
-  },
-  {
-    key: 'captcha_type',
-    label: '验证码类型',
-    description: '选择验证码的显示类型，不同类型有不同的安全级别',
-    type: 'select',
-    dependsOn: 'captcha_enabled',
-    dependsValue: 'true',
-    options: [
-      { 
-        label: '随机类型', 
-        value: 'RANDOM', 
-        description: '系统随机选择验证码类型' 
-      },
-      { 
-        label: '滑块验证码', 
-        value: 'SLIDER', 
-        description: '拖动滑块完成拼图验证' 
-      },
-      { 
-        label: '文字点选验证码', 
-        value: 'WORD_IMAGE_CLICK', 
-        description: '按顺序点击指定文字' 
-      },
-      { 
-        label: '旋转验证码', 
-        value: 'ROTATE', 
-        description: '旋转图片到正确角度' 
-      },
-      { 
-        label: '拼图验证码', 
-        value: 'CONCAT', 
-        description: '拖动滑块完成图片拼接' 
-      }
-    ]
   }
 ];
 
@@ -105,7 +62,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
 const getInitialConfigs = (): Record<string, string> => {
   if (typeof window === 'undefined') return {};
   
-  const configKeys = ['app_name', 'captcha_enabled', 'captcha_type', 'ip'];
+  const configKeys = ['app_name', 'ip'];
   const initialConfigs: Record<string, string> = {};
   
   try {
@@ -150,7 +107,8 @@ export default function ConfigPage() {
     }
     
     try {
-      const configData = await getCachedConfigs();
+      const allConfigs = await getCachedConfigs();
+      const configData = Object.fromEntries(Object.entries(allConfigs).filter(([key]) => CONFIG_ITEMS.some(item => item.key === key)));
       
       // 只有在数据有变化时才更新
       const hasDataChanged = JSON.stringify(configData) !== JSON.stringify(configsToCompare);
@@ -181,14 +139,7 @@ export default function ConfigPage() {
 
   // 处理配置项变更
   const handleConfigChange = (key: string, value: string) => {
-    let newConfigs = { ...configs, [key]: value };
-    
-    // 特殊处理：启用验证码时，如果验证码类型未设置，默认为随机
-    if (key === 'captcha_enabled' && value === 'true') {
-      if (!newConfigs.captcha_type) {
-        newConfigs.captcha_type = 'RANDOM';
-      }
-    }
+    const newConfigs = { ...configs, [key]: value };
     
     setConfigs(newConfigs);
     
@@ -269,53 +220,6 @@ export default function ConfigPage() {
                 : ""
             }}
           />
-        );
-
-      case 'switch':
-        return (
-          <Switch
-            isSelected={configs[item.key] === 'true'}
-            onValueChange={(checked) => handleConfigChange(item.key, checked ? 'true' : 'false')}
-            color="primary"
-            size="md"
-            classNames={{
-              wrapper: isChanged ? "border-warning-300" : ""
-            }}
-          >
-            <span className="text-sm text-gray-700 dark:text-gray-300">
-              {configs[item.key] === 'true' ? '已启用' : '已禁用'}
-            </span>
-          </Switch>
-        );
-
-      case 'select':
-        return (
-          <Select
-            selectedKeys={configs[item.key] ? [configs[item.key]] : []}
-            onSelectionChange={(keys) => {
-              const selectedKey = Array.from(keys)[0] as string;
-              if (selectedKey) {
-                handleConfigChange(item.key, selectedKey);
-              }
-            }}
-            placeholder="请选择验证码类型"
-            variant="bordered"
-            size="md"
-            classNames={{
-              trigger: isChanged 
-                ? "border-warning-300 data-[hover=true]:border-warning-400" 
-                : ""
-            }}
-          >
-            {item.options?.map((option) => (
-              <SelectItem 
-                key={option.value}
-                description={option.description}
-              >
-                {option.label}
-              </SelectItem>
-            )) || []}
-          </Select>
         );
 
       default:

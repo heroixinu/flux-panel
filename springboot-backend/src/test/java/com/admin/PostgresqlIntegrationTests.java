@@ -69,6 +69,9 @@ class PostgresqlIntegrationTests {
     @Test
     void loginIdentityPaginationJoinAndFlowUpdates() {
         LoginDto login = new LoginDto();
+        // Historical captcha settings must not block login after retirement.
+        jdbc.update("INSERT INTO vite_config (name,value,time) VALUES ('captcha_enabled','true',1)");
+        assertEquals(0, new com.admin.controller.CaptchaController().check().getData());
         login.setUsername("ADMIN_USER");
         login.setPassword("admin_user");
         assertEquals(0, users.login(login).getCode());

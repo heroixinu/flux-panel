@@ -48,9 +48,12 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
         Map<String, String> configMap = new HashMap<>();
         
         for (ViteConfig config : configList) {
-            configMap.put(config.getName(), config.getValue());
+            if (!isRetiredCaptchaKey(config.getName())) {
+                configMap.put(config.getName(), config.getValue());
+            }
         }
         
+        configMap.put("captcha_enabled", "false"); // Legacy clients only.
         return R.ok(configMap);
     }
 
@@ -65,6 +68,14 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
         if (!StringUtils.hasText(name)) {
             return R.err(ERROR_CONFIG_NAME_REQUIRED);
         }
+
+        if ("captcha_enabled".equalsIgnoreCase(name)) {
+            ViteConfig disabled = new ViteConfig();
+            disabled.setName("captcha_enabled");
+            disabled.setValue("false");
+            return R.ok(disabled);
+        }
+        if (isRetiredCaptchaKey(name)) return R.err(ERROR_CONFIG_NOT_FOUND);
 
         QueryWrapper<ViteConfig> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("name", name);
@@ -98,7 +109,7 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
                     continue; // 跳过无效的配置名
                 }
                 
-                updateOrCreateConfig(name, value);
+                if (!isRetiredCaptchaKey(name)) updateOrCreateConfig(name, value);
             }
             return R.ok(SUCCESS_UPDATE_MSG);
         } catch (Exception e) {
@@ -123,6 +134,7 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
             return R.err(ERROR_CONFIG_VALUE_REQUIRED);
         }
 
+        if (isRetiredCaptchaKey(name)) return R.err("图形验证码已停用");
         try {
             updateOrCreateConfig(name, value);
             return R.ok(SUCCESS_UPDATE_MSG);
@@ -137,6 +149,10 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
      * 更新或创建配置项
      * 如果配置存在则更新，不存在则创建
      */
+    private static boolean isRetiredCaptchaKey(String name) {
+        return "captcha_enabled".equalsIgnoreCase(name) || "captcha_type".equalsIgnoreCase(name);
+    }
+
     private void updateOrCreateConfig(String name, String value) {
         QueryWrapper<ViteConfig> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("name", name);
