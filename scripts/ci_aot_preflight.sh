@@ -22,6 +22,8 @@ case "$engine" in
   *) echo "Unsupported engine: $engine" >&2; exit 1 ;;
 esac
 export FLUX_TEST_URL=http://127.0.0.1:6366
+export PASSKEY_ENABLED=true PASSKEY_ORIGIN=http://localhost:6366
+passkey_state=$(mktemp)
 export FLUX_TASKS_STATISTICS_CRON='*/5 * * * * *'
 export FLUX_TASKS_RESET_CRON='*/5 * * * * *'
 java -Xms32m -Xmx192m -XX:+UseSerialGC \
@@ -34,6 +36,7 @@ cleanup() {
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   if [[ "$result" != 0 ]]; then cat "$log" >&2; fi
+  rm -f "$passkey_state"
   if [[ -n "$scratch" ]]; then rm -rf "$scratch"; fi
   exit "$result"
 }
@@ -42,6 +45,7 @@ for i in $(seq 1 300); do
   if curl -fs --max-time 1 "$FLUX_TEST_URL/flow/test" | grep -qx test; then
     grep -q 'Starting AOT-processed' "$log"
     python "$root/scripts/smoke_backend.py"
+    python "$root/scripts/smoke_passkey.py" --state "$passkey_state"
     if grep -E 'MissingReflectionRegistrationError|MissingResourceRegistrationError|Unexpected error occurred in scheduled task|Type definition error:|SQLITE_BUSY|SQLITE_LOCKED|database is locked' "$log"; then
       exit 1
     fi

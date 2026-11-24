@@ -7,6 +7,7 @@ on:
       - codex/postgresql-support
       - codex/graalvm-native
       - codex/sqlite-default
+      - codex/passkey-auth
     tags:
       - '[0-9]*'
   pull_request:
@@ -14,6 +15,7 @@ on:
       - main
       - codex/postgresql-support
       - codex/graalvm-native
+      - codex/sqlite-default
   workflow_dispatch:
 
 permissions:

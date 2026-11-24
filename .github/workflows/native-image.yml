@@ -2,7 +2,7 @@ name: JVM and Native Image verification
 
 on:
   push:
-    branches: [codex/graalvm-native, codex/sqlite-default]
+    branches: [codex/graalvm-native, codex/sqlite-default, codex/passkey-auth]
     tags: ['[0-9]*']
     paths:
       - 'springboot-backend/**'
@@ -12,7 +12,7 @@ on:
       - 'docs/sqlite-operations.md'
       - '.github/workflows/native-image.yml'
   pull_request:
-    branches: [main, codex/postgresql-support, codex/graalvm-native]
+    branches: [main, codex/postgresql-support, codex/graalvm-native, codex/sqlite-default]
     paths:
       - 'springboot-backend/**'
       - 'scripts/**'

@@ -11,6 +11,8 @@ data_dir="$scratch/data"
 backup_dir="$scratch/backup"
 mkdir -p "$data_dir" "$backup_dir"
 export FLUX_TEST_DB="$engine"
+export PASSKEY_ORIGIN=http://localhost:6365
+passkey_state="$scratch/passkeys.json"
 db_args=()
 case "$engine" in
   sqlite)
@@ -43,9 +45,11 @@ trap cleanup EXIT
 start() {
   local before after
   before=$(date +%s%3N)
+  local recovery="${1:-false}"
   docker run -d --name "$name" --network host --memory=512m --memory-swap=512m --cpus=2 \
     "${db_args[@]}" \
     -e JWT_SECRET=ci-integration-only-32-character-secret -e LOG_DIR=/tmp/flux-logs \
+    -e PASSKEY_ENABLED=true -e PASSKEY_ORIGIN="$PASSKEY_ORIGIN" -e PASSKEY_RECOVERY_PASSWORD_LOGIN="$recovery" \
     -e 'FLUX_TASKS_STATISTICS_CRON=*/5 * * * * *' -e 'FLUX_TASKS_RESET_CRON=*/5 * * * * *' \
     "$image" >/dev/null
   for i in $(seq 1 600); do
@@ -86,6 +90,7 @@ if [[ "$engine" == postgresql && -n "${FLUX_PG_CONTAINER:-}" ]]; then
   pg_idle=$(docker exec "$FLUX_PG_CONTAINER" cat /sys/fs/cgroup/memory.current | tr -d '\r')
 fi
 python scripts/smoke_backend.py
+python scripts/smoke_passkey.py --state "$passkey_state"
 sleep 10
 warm=$(memory)
 peak=$(docker exec "$name" cat /sys/fs/cgroup/memory.peak | tr -d '\r')
@@ -98,6 +103,7 @@ fi
 stop_and_check first
 docker rm "$name"
 restart=$(start)
+python scripts/smoke_passkey.py --state "$passkey_state" --restart
 python scripts/smoke_backend.py --restart
 stop_and_check restart
 restore=0
@@ -109,8 +115,22 @@ if [[ "$engine" == sqlite ]]; then
   cp "$backup_dir/flux.db" "$data_dir/flux.db"
   chmod 600 "$data_dir/flux.db"
   restore=$(start)
+  python scripts/smoke_passkey.py --state "$passkey_state" --restart
   python scripts/smoke_backend.py --restart
   stop_and_check restore
+  # Restore again to test emergency recovery with the persisted passkey-only policy.
+  docker rm "$name"
+  rm -rf "$data_dir"
+  mkdir "$data_dir"
+  cp "$backup_dir/flux.db" "$data_dir/flux.db"
+  chmod 600 "$data_dir/flux.db"
+  start true >/dev/null
+  python scripts/smoke_passkey.py --recovery
+  stop_and_check recovery
+  docker rm "$name"
+  start >/dev/null
+  python scripts/smoke_backend.py --restart
+  stop_and_check recovered
 fi
 printf '{"engine":"%s","ready_ms":%s,"restart_ready_ms":%s,"restore_ready_ms":%s,"idle_cgroup_bytes":%s,"idle_rss_bytes":%s,"warm_cgroup_bytes":%s,"peak_cgroup_bytes":%s,"postgres_idle_cgroup_bytes":%s,"combined_idle_cgroup_bytes":%s}\n' \
  "$engine" "$ready" "$restart" "$restore" "$idle" "$idle_rss" "$warm" "$peak" "$pg_idle" "$((idle+pg_idle))" > "$metrics"
