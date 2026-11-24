@@ -17,6 +17,7 @@ start() {
     -e DB_HOST=127.0.0.1 -e DB_PORT="$PGPORT" -e DB_NAME="$PGDATABASE" \
     -e DB_USER="$PGUSER" -e DB_PASSWORD="$PGPASSWORD" \
     -e JWT_SECRET=ci-integration-only-32-character-secret -e LOG_DIR=/tmp/flux-logs \
+    -e 'FLUX_TASKS_STATISTICS_CRON=*/5 * * * * *' -e 'FLUX_TASKS_RESET_CRON=*/5 * * * * *' \
     "$image" >/dev/null
   for i in $(seq 1 600); do
     if curl -fsS --max-time 1 http://127.0.0.1:6365/flow/test | grep -qx test; then

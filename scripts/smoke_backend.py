@@ -8,6 +8,8 @@ import argparse
 import base64
 import concurrent.futures
 import hashlib
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import json
 import os
 import subprocess
@@ -177,6 +179,16 @@ def main():
     assert sql(f"SELECT in_flow || ',' || out_flow FROM forward WHERE id={fid}") == "10,6"
     assert sql(f"SELECT in_flow || ',' || out_flow FROM app_user WHERE id={uid}") == "10,6"
     assert sql(f"SELECT in_flow || ',' || out_flow FROM user_tunnel WHERE id={pid}") == "10,6"
+
+    # Scheduled statistics and flow reset run every five seconds in the disposable CI container.
+    eventually(lambda: sql(f"SELECT count(*) FROM statistics_flow WHERE user_id={uid} AND total_flow=16") != "0", timeout=25)
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).day
+    sql(f"UPDATE app_user SET flow_reset_time={today} WHERE id={uid}")
+    sql(f"UPDATE user_tunnel SET flow_reset_time={today} WHERE id={pid}")
+    eventually(lambda: sql(f"SELECT in_flow || ',' || out_flow FROM app_user WHERE id={uid}") == "0,0", timeout=25)
+    eventually(lambda: sql(f"SELECT in_flow || ',' || out_flow FROM user_tunnel WHERE id={pid}") == "0,0", timeout=25)
+    sql(f"UPDATE app_user SET flow_reset_time=0 WHERE id={uid}")
+    sql(f"UPDATE user_tunnel SET flow_reset_time=0 WHERE id={pid}")
 
     # Replace default credentials to prove initialization preserves the existing database on restart.
     post("user/updatePassword", {"newUsername": "ci_smoke_admin", "currentPassword": "admin_user",

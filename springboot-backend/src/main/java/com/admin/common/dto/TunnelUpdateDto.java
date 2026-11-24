@@ -39,6 +39,6 @@ public class TunnelUpdateDto {
     @NotBlank
     private String udpListenAddr;
 
-    @TableField(updateStrategy = FieldStrategy.IGNORED)
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String interfaceName;
 } 

@@ -257,3 +257,6 @@ gitee/
 doraemon.jks
 device.id
 commit.sh
+# Local Native Image build and verification outputs
+/springboot-backend/native/
+/reports/

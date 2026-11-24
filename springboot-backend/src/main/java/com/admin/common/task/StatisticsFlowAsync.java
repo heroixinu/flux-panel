@@ -30,7 +30,7 @@ public class StatisticsFlowAsync {
     @Resource
     StatisticsFlowService statisticsFlowService;
 
-    @Scheduled(cron = "0 0 * * * ?")
+    @Scheduled(cron = "${flux.tasks.statistics-cron:0 0 * * * ?}")
     public void statistics_flow() {
         LocalDateTime currentHour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
         String hourString = currentHour.format(DateTimeFormatter.ofPattern("HH:mm"));

@@ -35,6 +35,6 @@ public class ForwardUpdateDto {
     @Max(value = 65535, message = "端口号不能大于65535")
     private Integer inPort;
 
-    @TableField(updateStrategy = FieldStrategy.IGNORED)
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String interfaceName;
 } 

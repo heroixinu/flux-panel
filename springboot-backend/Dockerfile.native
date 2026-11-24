@@ -3,7 +3,7 @@
 FROM ubuntu:24.04
 WORKDIR /app
 ENV LANG=C.UTF-8 TZ=Asia/Shanghai
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 COPY --chmod=0755 native/flux-panel /app/flux-panel
 EXPOSE 6365
