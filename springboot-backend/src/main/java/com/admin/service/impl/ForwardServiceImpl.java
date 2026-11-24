@@ -13,7 +13,7 @@ import com.admin.mapper.ForwardMapper;
 import com.admin.service.*;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.alibaba.fastjson.JSONObject;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -21,7 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -649,7 +649,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     private DiagnosisResult performTcpPingDiagnosis(Node node, String targetIp, int port, String description) {
         try {
             // 构建TCP ping请求数据
-            JSONObject tcpPingData = new JSONObject();
+            java.util.Map<String, Object> tcpPingData = new java.util.LinkedHashMap<>();
             tcpPingData.put("ip", targetIp);
             tcpPingData.put("port", port);
             tcpPingData.put("count", 2);
@@ -670,16 +670,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 // 尝试解析TCP ping响应数据
                 try {
                     if (gostResult.getData() != null) {
-                        JSONObject tcpPingResponse = (JSONObject) gostResult.getData();
-                        boolean success = tcpPingResponse.getBooleanValue("success");
+                        JsonNode tcpPingResponse = (JsonNode) gostResult.getData();
+                        boolean success = tcpPingResponse.path("success").asBoolean(false);
 
                         result.setSuccess(success);
                         if (success) {
                             result.setMessage("TCP连接成功");
-                            result.setAverageTime(tcpPingResponse.getDoubleValue("averageTime"));
-                            result.setPacketLoss(tcpPingResponse.getDoubleValue("packetLoss"));
+                            result.setAverageTime(tcpPingResponse.path("averageTime").asDouble(0.0));
+                            result.setPacketLoss(tcpPingResponse.path("packetLoss").asDouble(0.0));
                         } else {
-                            result.setMessage(tcpPingResponse.getString("errorMessage"));
+                            result.setMessage(tcpPingResponse.path("errorMessage").asText(null));
                             result.setAverageTime(-1.0);
                             result.setPacketLoss(100.0);
                         }

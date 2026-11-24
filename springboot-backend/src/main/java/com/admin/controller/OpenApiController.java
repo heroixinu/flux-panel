@@ -3,12 +3,11 @@ package com.admin.controller;
 
 import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 import com.admin.common.utils.Md5Util;
 import com.admin.entity.User;
 import com.admin.entity.UserTunnel;
-import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,11 +25,6 @@ public class OpenApiController extends BaseController {
             @RequestParam("pwd") String pwd,
             @RequestParam(value = "tunnel", required = false, defaultValue = "-1") String tunnel,
             HttpServletResponse response) {
-        JSONObject result = new JSONObject();
-        result.put("upload", 0);
-        result.put("download", 0);
-        result.put("total", 0);
-        result.put("expire", 0);
         // 校验 user 是否为空
         if (user == null || user.isEmpty()) {
             return R.err("用户不能为空");

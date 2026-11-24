@@ -1,12 +1,11 @@
 package com.admin.common.utils;
 
 import com.admin.entity.User;
-import com.alibaba.fastjson2.JSON;
 import lombok.SneakyThrows;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -52,7 +51,7 @@ public class JwtUtil {
             Map<String, Object> header = new HashMap<>();
             header.put("alg", ALGORITHM);
             header.put("typ", "JWT");
-            String headerJson = JSON.toJSONString(header);
+            String headerJson = JsonSupport.write(header);
             String encodedHeader = Base64.getUrlEncoder().withoutPadding()
                     .encodeToString(headerJson.getBytes(StandardCharsets.UTF_8));
 
@@ -65,7 +64,7 @@ public class JwtUtil {
             payload.put("name", user.getUser());
             payload.put("role_id", user.getRoleId());
 
-            String payloadJson = JSON.toJSONString(payload);
+            String payloadJson = JsonSupport.write(payload);
             String encodedPayload = Base64.getUrlEncoder().withoutPadding()
                     .encodeToString(payloadJson.getBytes(StandardCharsets.UTF_8));
 
@@ -108,7 +107,7 @@ public class JwtUtil {
 
             // 验证过期时间
             String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-            Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+            Map<String, Object> payload = JsonSupport.readMap(decodedPayload);
             long exp = Long.parseLong(payload.get("exp").toString());
             long now = System.currentTimeMillis() / 1000;
             
@@ -128,7 +127,7 @@ public class JwtUtil {
         String[] parts = token.split("\\.");
         String encodedPayload = parts[1];
         String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+        Map<String, Object> payload = JsonSupport.readMap(decodedPayload);
         return Long.parseLong(payload.get("sub").toString());
     }
 
@@ -138,7 +137,7 @@ public class JwtUtil {
         String[] parts = token.split("\\.");
         String encodedPayload = parts[1];
         String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+        Map<String, Object> payload = JsonSupport.readMap(decodedPayload);
         return Integer.parseInt(payload.get("sub").toString());
     }
 
@@ -147,7 +146,7 @@ public class JwtUtil {
         String[] parts = token.split("\\.");
         String encodedPayload = parts[1];
         String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+        Map<String, Object> payload = JsonSupport.readMap(decodedPayload);
         return payload.get("name").toString();
     }
 
@@ -161,7 +160,7 @@ public class JwtUtil {
         String[] parts = token.split("\\.");
         String encodedPayload = parts[1];
         String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+        Map<String, Object> payload = JsonSupport.readMap(decodedPayload);
         return Integer.parseInt(payload.get("role_id").toString());
     }
 
@@ -172,7 +171,7 @@ public class JwtUtil {
         String[] parts = token.split("\\.");
         String encodedPayload = parts[1];
         String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+        Map<String, Object> payload = JsonSupport.readMap(decodedPayload);
         return Integer.parseInt(payload.get("role_id").toString());
     }
     /**

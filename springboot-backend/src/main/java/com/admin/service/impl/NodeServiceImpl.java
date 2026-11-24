@@ -15,7 +15,6 @@ import com.admin.mapper.TunnelMapper;
 import com.admin.service.NodeService;
 import com.admin.service.TunnelService;
 import com.admin.service.ViteConfigService;
-import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -23,7 +22,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.List;
 import java.util.Objects;
 
@@ -135,7 +134,7 @@ public class NodeServiceImpl extends ServiceImpl<NodeMapper, Node> implements No
         boolean socksChanged = newSocks != null && !newSocks.equals(node.getSocks());
 
         if (online && (httpChanged || tlsChanged || socksChanged)) {
-            JSONObject req = new JSONObject();
+            java.util.Map<String, Object> req = new java.util.LinkedHashMap<>();
             req.put("http", newHttp);
             req.put("tls", newTls);
             req.put("socks", newSocks);

@@ -6,8 +6,6 @@ import com.admin.common.dto.GostDto;
 import com.admin.common.task.CheckGostConfigAsync;
 import com.admin.entity.Node;
 import com.admin.service.NodeService;
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -16,8 +14,11 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.Objects;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -83,11 +84,12 @@ public class WebSocketServer extends TextWebSocketHandler {
                     log.info("收到消息: {}", decryptedPayload);
                     // 处理命令响应消息
                     try {
-                        JSONObject responseJson = JSONObject.parseObject(decryptedPayload);
-                        String requestId = responseJson.getString("requestId");
-                        String responseMessage = responseJson.getString("message");
-                        String responseType = responseJson.getString("type");
-                        JSONObject responseData = responseJson.getJSONObject("data");
+                        JsonNode responseJson = JsonSupport.tree(decryptedPayload);
+                        String requestId = responseJson.path("requestId").asText(null);
+                        String responseMessage = responseJson.path("message").asText(null);
+                        String responseType = responseJson.path("type").asText(null);
+                        JsonNode responseData = responseJson.get("data");
+                        if (responseData != null && responseData.isNull()) responseData = null;
                         
                         if (requestId != null) {
                             CompletableFuture<GostDto> future = pendingRequests.remove(requestId);
@@ -120,11 +122,11 @@ public class WebSocketServer extends TextWebSocketHandler {
 
                 // 如果是节点类型，转发消息给其他会话
                 if (Objects.equals(type, "1")) {
-                    JSONObject jsonObject = new JSONObject();
+                    Map<String, Object> jsonObject = new LinkedHashMap<>();
                     jsonObject.put("id", id);
                     jsonObject.put("type", "info");
                     jsonObject.put("data", decryptedPayload);
-                    String broadcastMessage = jsonObject.toJSONString();
+                    String broadcastMessage = JsonSupport.write(jsonObject);
                     
                     // 异步处理广播消息，避免阻塞当前线程
                     for (WebSocketSession targetSession : activeSessions) {
@@ -149,7 +151,7 @@ public class WebSocketServer extends TextWebSocketHandler {
 
         try {
             // 尝试解析为加密消息格式
-            EncryptedMessage encryptedMessage = JSON.parseObject(payload, EncryptedMessage.class);
+            EncryptedMessage encryptedMessage = JsonSupport.read(payload, EncryptedMessage.class);
             
             if (encryptedMessage.isEncrypted() && encryptedMessage.getData() != null) {
                 // 获取或创建加密器
@@ -185,12 +187,12 @@ public class WebSocketServer extends TextWebSocketHandler {
                 String encryptedData = crypto.encrypt(message);
                 
                 // 创建加密消息包装器
-                JSONObject encryptedMessage = new JSONObject();
+                Map<String, Object> encryptedMessage = new LinkedHashMap<>();
                 encryptedMessage.put("encrypted", true);
                 encryptedMessage.put("data", encryptedData);
                 encryptedMessage.put("timestamp", System.currentTimeMillis());
                 
-                return encryptedMessage.toJSONString();
+                return JsonSupport.write(encryptedMessage);
             }
         } catch (Exception e) {
             log.info("⚠️ WebSocket消息加密失败，发送原始数据: {}", e.getMessage());
@@ -275,11 +277,11 @@ public class WebSocketServer extends TextWebSocketHandler {
                         log.info("节点 {} 连接建立成功，状态更新为在线，版本: {}", nodeId, version);
                         
                         // 广播节点上线状态给所有管理员
-                        JSONObject res = new JSONObject();
+                        Map<String, Object> res = new LinkedHashMap<>();
                         res.put("id", id);
                         res.put("type", "status");
                         res.put("data", 1);
-                        broadcastMessage(res.toJSONString());
+                        broadcastMessage(JsonSupport.write(res));
                     } else {
                         log.info("节点 {} 状态更新失败", nodeId);
                     }
@@ -346,11 +348,11 @@ public class WebSocketServer extends TextWebSocketHandler {
                         if (updateResult) {
                             log.info("节点 {} 状态更新为离线成功", nodeId);
                             
-                            JSONObject res = new JSONObject();
+                            Map<String, Object> res = new LinkedHashMap<>();
                             res.put("id", id);
                             res.put("type", "status");
                             res.put("data", 0);
-                            broadcastMessage(res.toJSONString());
+                            broadcastMessage(JsonSupport.write(res));
                         } else {
                             log.info("节点 {} 状态更新为离线失败", nodeId);
                         }
@@ -465,11 +467,11 @@ public class WebSocketServer extends TextWebSocketHandler {
         String nodeSecret = (String) nodeSession.getAttributes().get("nodeSecret");
 
         try {
-            JSONObject data = new JSONObject();
+            Map<String, Object> data = new LinkedHashMap<>();
             data.put("type", type);
             data.put("data", msg);
             data.put("requestId", requestId);
-            sendToUser(nodeSession, data.toJSONString(), nodeSecret);
+            sendToUser(nodeSession, JsonSupport.write(data), nodeSecret);
             GostDto result = future.get(10, TimeUnit.SECONDS);
             
             log.info("成功发送消息到节点 {} 并收到响应: {}", node_id, result.getMsg());

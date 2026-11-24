@@ -7,15 +7,15 @@ import com.admin.common.lang.R;
 import com.admin.common.task.CheckGostConfigAsync;
 import com.admin.common.utils.AESCrypto;
 import com.admin.common.utils.GostUtil;
+import com.admin.common.utils.JsonSupport;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.admin.entity.*;
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import org.springframework.web.bind.annotation.*;
 import lombok.extern.slf4j.Slf4j;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
@@ -110,7 +110,7 @@ public class FlowController extends BaseController {
             String decryptedData = decryptIfNeeded(rawData, secret);
 
             // 解析为GostConfigDto
-            GostConfigDto gostConfigDto = JSON.parseObject(decryptedData, GostConfigDto.class);
+            GostConfigDto gostConfigDto = JsonSupport.read(decryptedData, GostConfigDto.class);
             checkGostConfigAsync.cleanNodeConfigs(node.getId(), gostConfigDto);
 
             log.info("🔓 节点 {} 配置数据接收成功{}", node.getId(), isEncryptedMessage(rawData) ? "（已解密）" : "");
@@ -147,7 +147,7 @@ public class FlowController extends BaseController {
         String decryptedData = decryptIfNeeded(rawData, secret);
 
         // 3. 解析为FlowDto列表
-        FlowDto flowDataList = JSONObject.parseObject(decryptedData, FlowDto.class);
+        FlowDto flowDataList = JsonSupport.read(decryptedData, FlowDto.class);
         if (Objects.equals(flowDataList.getN(), "web_api")) {
             return SUCCESS_RESPONSE;
         }
@@ -163,8 +163,8 @@ public class FlowController extends BaseController {
      */
     private boolean isEncryptedMessage(String data) {
         try {
-            JSONObject json = JSON.parseObject(data);
-            return json.getBooleanValue("encrypted");
+            JSONObject json = JsonSupport.read(data);
+            return json.path("encrypted").asBoolean(false);
         } catch (Exception e) {
             return false;
         }
@@ -180,7 +180,7 @@ public class FlowController extends BaseController {
 
         try {
             // 尝试解析为加密消息格式
-            EncryptedMessage encryptedMessage = JSON.parseObject(rawData, EncryptedMessage.class);
+            EncryptedMessage encryptedMessage = JsonSupport.read(rawData, EncryptedMessage.class);
 
             if (encryptedMessage.isEncrypted() && encryptedMessage.getData() != null) {
                 // 获取或创建加密器
