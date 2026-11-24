@@ -9,9 +9,6 @@ import com.admin.common.dto.UserTunnelDto;
 import com.admin.common.dto.UserTunnelQueryDto;
 import com.admin.common.dto.UserTunnelUpdateDto;
 import com.admin.common.lang.R;
-import com.admin.service.TunnelService;
-import com.admin.service.UserTunnelService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,11 +27,7 @@ import java.util.Map;
 @RequestMapping("/api/v1/tunnel")
 public class TunnelController extends BaseController {
 
-    @Autowired
-    private TunnelService tunnelService;
     
-    @Autowired
-    private UserTunnelService userTunnelService;
 
     @LogAnnotation
     @RequireRole

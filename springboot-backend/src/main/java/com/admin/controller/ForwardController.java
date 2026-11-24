@@ -5,8 +5,6 @@ import com.admin.common.annotation.RequireRole;
 import com.admin.common.dto.ForwardDto;
 import com.admin.common.dto.ForwardUpdateDto;
 import com.admin.common.lang.R;
-import com.admin.service.ForwardService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,8 +23,6 @@ import java.util.Map;
 @RequestMapping("/api/v1/forward")
 public class ForwardController extends BaseController {
 
-    @Autowired
-    private ForwardService forwardService;
 
     @LogAnnotation
     @PostMapping("/create")

@@ -6,7 +6,6 @@ import com.admin.common.dto.SpeedLimitDto;
 import com.admin.common.dto.SpeedLimitUpdateDto;
 import com.admin.common.lang.R;
 import com.admin.service.SpeedLimitService;
-import com.admin.service.TunnelService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -29,8 +28,6 @@ public class SpeedLimitController extends BaseController {
     @Autowired
     private SpeedLimitService speedLimitService;
 
-    @Autowired
-    private TunnelService tunnelService;
 
     @LogAnnotation
     @RequireRole
