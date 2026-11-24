@@ -5,7 +5,7 @@
 ## 镜像及切换
 
 JVM: ghcr.io/heroixinu/flux-panel-backend:graalvm-jvm
-Native: ghcr.io/heroixinu/flux-panel-backend:graalvm-native（双架构验证与发布成功后）
+Native: ghcr.io/heroixinu/flux-panel-backend:graalvm-native（AMD64 验证与发布成功后）
 Frontend: ghcr.io/heroixinu/flux-panel-frontend:graalvm-jvm
 
 Compose 使用 IMAGE_TAG=graalvm-jvm 选择前后端的 JVM 基线，BACKEND_IMAGE_TAG=graalvm-native 单独选择原生后端。1Panel 自建 Compose 可只替换 backend 镜像标签。保持 DB_HOST、DB_PORT、DB_NAME、DB_USER、DB_PASSWORD、JWT_SECRET、LOG_DIR、端口及日志挂载。先备份数据库，再重新创建后端容器。Native 不读取 JAVA_OPTS，默认堆为 Xms32m/Xmx192m；若需要覆盖，使用容器 command 参数，保留 -Duser.timezone=Asia/Shanghai。
@@ -28,8 +28,10 @@ docker build -f Dockerfile.native -t flux-backend:native .
 
 ## CI 与验收
 
-docker-build.yml: MySQL→PG 迁移回归、JVM 集成测试、前端构建、GOST 双架构、JVM 多架构镜像。
-native-image.yml: JVM/Native × AMD64/ARM64 的实际容器测试。两种产物使用同一套 smoke_backend.py，包括空库初始化、历史验证码关闭、密码及 JWT、普通用户权限限制、节点握手与重连、AES-GCM 双向命令、Mapper XML 查询、流量上报、统计/重置定时任务、重启数据保留。
+当前阶段仅构建、测试和发布 Linux AMD64；ARM64 暂停，源码和安装脚本的架构兼容逻辑保留。实验分支生成的镜像及 GOST release 资产不再包含 ARM64。稳定分支未修改。
+
+docker-build.yml: MySQL→PG 迁移回归、JVM 集成测试、前端构建、GOST AMD64、JVM AMD64 镜像。
+native-image.yml: JVM/Native × AMD64 的实际容器测试。两种产物使用同一套 smoke_backend.py，包括空库初始化、历史验证码关闭、密码及 JWT、普通用户权限限制、节点握手与重连、AES-GCM 双向命令、Mapper XML 查询、流量上报、统计/重置定时任务、重启数据保留。
 
 所有 smoke 检查只应在隔离的 PostgreSQL 测试库运行。CI 容器统一 512MiB 内存、2 CPU、不使用 swap；报告包含冷启动到 HTTP ready 时间、重启 ready、空闲 cgroup memory.current、进程 RSS、负载后与峰值内存。测试报告是 GitHub Actions artifact，不应把构建成功或估算值当作实测。
 

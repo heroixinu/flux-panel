@@ -146,7 +146,7 @@ jobs:
           npm run build
 
   build-gost:
-    name: Build GOST for amd64 and arm64
+    name: Build GOST for amd64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -160,7 +160,6 @@ jobs:
           set -euo pipefail
           mkdir -p ../dist
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/gost-amd64 .
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../dist/gost-arm64 .
       - uses: actions/upload-artifact@v4
         with:
           name: gost-binaries
@@ -181,7 +180,6 @@ jobs:
             context: ./vite-frontend
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
@@ -207,7 +205,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -233,7 +231,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
-            dist/gost-amd64 dist/gost-arm64 \
+            dist/gost-amd64 \
             install.sh panel_install.sh \
             docker-compose-v4.yml docker-compose-v6.yml \
             gost.sql gost-schema.sql \

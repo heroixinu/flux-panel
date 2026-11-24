@@ -8,7 +8,7 @@
 - PostgreSQL 16、已有数据库、SQL 自动初始化、JWT、密码修改、REST、GOST 节点通信与协议、现有业务功能保持兼容。
 - 完全退役图形验证码：删除 Tianai Captcha、图片、字体及前端 UI；旧 /api/v1/captcha/check 返回 R.ok(0)，不访问数据库；旧 captchaId 兼容接收但不使用；旧配置不生效，不破坏已有数据。
 - Passkey / WebAuthn、凭证存储与撤销、账户恢复留在二期。关闭验证码意味着公网登录需要代理层频率限制；不得把 Passkey 作为一期发布条件。
-- 同一源码产生 JVM 和 Native 两种镜像；Linux AMD64/ARM64 分别在对应架构构建，不在 1GB 服务器编译。前端和 GOST 不做无关升级。
+- 同一源码产生 JVM 和 Native 两种镜像；当前仅在 Linux AMD64 构建（ARM64 CI/CD 暂停，保留源码兼容性），不在 1GB 服务器编译。前端和 GOST 不做无关升级。
 
 ## 实施里程碑
 
@@ -18,7 +18,7 @@
 | M2 JVM 迁移 | Boot 3.5、javax→jakarta（保留 Java SE javax.crypto/sql 等）；ORM、HTTP Client 5、JSON、AOP 检查；无用依赖清理 | PostgreSQL 集成测试、API JSON/GOST 协议回归、WebSocket、任务通过 |
 | M3 轻量化 | JVM 默认 Xms32m/Xmx192m/SerialGC；Hikari 最大5、最小1；Tomcat max32/min2，max connections512；环境变量可覆盖 | 1GB 环境可启动；负载测试无连接池/线程饥饿 |
 | M4 Native | Boot AOT Maven profile；MyBatis Mapper/实体/DTO、资源 SQL/XML、JSON 反射/代理、HTTP、JWT 配置检查 | native:compile 成功；启动后 SQL 初始化、REST 登录、节点交互、流量和任务测试通过 |
-| M5 CI/CD | JVM 和 Native 分离；独立原生 CI、AMD64/ARM64；先仅实验标签/构建产物，避免发布稳定标签 | 两架构构建和 smoke test 通过，镜像可单独回滚 |
+| M5 CI/CD | JVM 和 Native 分离；独立原生 CI、AMD64；先仅实验标签/构建产物，避免发布稳定标签 | AMD64 JVM 与 Native 构建和 smoke test 通过，镜像可单独回滚 |
 | M6 性能与发布 | 统一 workload、相同 PostgreSQL 和节点数量，测冷启动/空闲 RSS、cgroup 内存、峰值、24–72h 稳定性 | 目标 idle <=80 MiB、应用 ready <=3s（非保证）；无回归；手动批准正式发布 |
 
 ## 数据与回滚
