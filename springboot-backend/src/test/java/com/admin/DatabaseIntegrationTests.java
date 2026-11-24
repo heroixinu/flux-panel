@@ -29,8 +29,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
 @Transactional
-class PostgresqlIntegrationTests {
+class DatabaseIntegrationTests {
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.core.env.Environment environment;
     @Autowired DataSource dataSource;
     @Autowired UserService users;
     @Autowired ViteConfigMapper configs;
@@ -57,13 +58,20 @@ class PostgresqlIntegrationTests {
 
     @Test
     void initializesAllTablesAndDoesNotChangeExistingDataOnRestart() {
-        // CI creates the database but deliberately does NOT create the schema or seeds.
-        // Spring Boot itself must initialize the tables before it serves requests.
-        Long count = jdbc.queryForObject(
-            "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() " +
-            "AND table_name IN ('forward','node','speed_limit','statistics_flow','tunnel','app_user','user_tunnel','vite_config')",
-            Long.class
-        );
+        // Both engines must initialize all eight business tables before serving requests.
+        boolean sqlite = "sqlite".equals(environment.getProperty("flux.database.type"));
+        String tables = "('forward','node','speed_limit','statistics_flow','tunnel','app_user','user_tunnel','vite_config')";
+        Long count = jdbc.queryForObject(sqlite
+                ? "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " + tables
+                : "SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN " + tables,
+                Long.class);
+        if (sqlite) {
+            assertEquals("wal", jdbc.queryForObject("PRAGMA journal_mode", String.class));
+            assertEquals(10000, jdbc.queryForObject("PRAGMA busy_timeout", Integer.class));
+            assertEquals(2, jdbc.queryForObject("PRAGMA synchronous", Integer.class));
+            assertEquals(1, jdbc.queryForObject("PRAGMA foreign_keys", Integer.class));
+            assertEquals(1, ((com.zaxxer.hikari.HikariDataSource) dataSource).getMaximumPoolSize());
+        }
         assertEquals(8L, count);
         assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM app_user WHERE username='admin_user'", Long.class));
         assertEquals("flux", jdbc.queryForObject("SELECT value FROM vite_config WHERE name='app_name'", String.class));
@@ -75,7 +83,7 @@ class PostgresqlIntegrationTests {
 
         // Re-run the same SQL against an existing database. No seeded data should change.
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(
-            new ClassPathResource("db/init/schema.sql"),
+            new ClassPathResource(sqlite ? "db/init/sqlite-schema.sql" : "db/init/schema.sql"),
             new ClassPathResource("db/init/data.sql")
         );
         populator.execute(dataSource);
@@ -129,8 +137,20 @@ class PostgresqlIntegrationTests {
         record.setTotalFlow(5L);
         record.setTime("2026-01-01");
         record.setCreatedTime(1L);
-        assertTrue(statistics.saveBatch(List.of(record)));
+        StatisticsFlow second = new StatisticsFlow();
+        second.setUserId(1L);
+        second.setFlow(9007199254740993L);
+        second.setTotalFlow(9007199254740993L);
+        second.setTime("2026-01-01");
+        second.setCreatedTime(2L);
+        statistics.saveSamples(List.of(record, second));
         assertNotNull(record.getId());
+        assertNotNull(second.getId());
+        assertNotEquals(record.getId(), second.getId());
+        assertEquals(9007199254740993L, statistics.getById(second.getId()).getTotalFlow());
+        jdbc.update("UPDATE tunnel SET traffic_ratio=1.3 WHERE id=?", tunnelId);
+        assertEquals(0, new java.math.BigDecimal("1.3").compareTo(
+                jdbc.queryForObject("SELECT traffic_ratio FROM tunnel WHERE id=?", java.math.BigDecimal.class, tunnelId)));
         assertThrows(IllegalArgumentException.class, () -> flows.uploadFlowData("{\"n\":\"bad_1_0_tcp\",\"u\":3,\"d\":5}", "integration-secret"));
     }
 }

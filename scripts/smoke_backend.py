@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real HTTP/WebSocket protocol and database against a disposable backend.
 
-Run only with the dedicated CI test PostgreSQL database (not production).
+Run only with a dedicated disposable CI test database (not production).
 Uses the same checks for both JVM and Native images.
 """
 import argparse
@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 import json
 import os
 import subprocess
+import sqlite3
+from contextlib import closing
 import time
 import urllib.parse
 import urllib.request
@@ -22,9 +24,18 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from websocket import create_connection, WebSocketBadStatusException
 
 BASE = os.environ.get("FLUX_TEST_URL", "http://127.0.0.1:6365")
+ENGINE = os.environ.get("FLUX_TEST_DB", "postgresql")
 
 
 def sql(query):
+    if ENGINE == "sqlite":
+        with closing(sqlite3.connect(os.environ["FLUX_TEST_DB_PATH"], timeout=15)) as conn:
+            with conn:
+                cursor = conn.execute(query)
+                rows = cursor.fetchall() if cursor.description else []
+                return "\n".join("|".join("" if v is None else str(v) for v in row) for row in rows)
+    if ENGINE != "postgresql":
+        raise ValueError("Unsupported test database")
     return subprocess.check_output(
         ["psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-c", query], text=True
     ).strip()
@@ -115,7 +126,13 @@ def check_dashboard(token, username, user_id, *, tunnel_id=None, forward_id=None
 
 
 def verify_initial_schema():
-    assert sql("SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN ('forward','node','speed_limit','statistics_flow','tunnel','app_user','user_tunnel','vite_config')") == "8"
+    tables = "('forward','node','speed_limit','statistics_flow','tunnel','app_user','user_tunnel','vite_config')"
+    if ENGINE == "sqlite":
+        assert sql("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " + tables) == "8"
+        assert sql("PRAGMA journal_mode").lower() == "wal"
+        assert sql("PRAGMA integrity_check") == "ok"
+    else:
+        assert sql("SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN " + tables) == "8"
     assert sql("SELECT count(*) FROM app_user WHERE username='admin_user'") == "1"
     assert sql("SELECT value FROM vite_config WHERE name='app_name'") == "flux"
 
@@ -139,7 +156,7 @@ def main():
     assert post("config/list", token=admin)["captcha_enabled"] == "false"
     assert post("config/get", {"name": "app_name"})["value"] == "native-smoke"
 
-    # Exercise validation, BeanUtils, PostgreSQL generated keys, entity serialization, role checks.
+    # Exercise validation, BeanUtils, database-generated keys, entity serialization, role checks.
     user = {"user": "ci_smoke_user", "pwd": "ci-smoke-password", "flow": 100, "num": 10,
             "expTime": 2727251700000, "flowResetTime": 0, "status": 1}
     post("user/create", user, admin)
@@ -238,6 +255,14 @@ def main():
     assert dashboard["userInfo"]["inFlow"] == 10 and dashboard["userInfo"]["outFlow"] == 6
     assert any(row["totalFlow"] == 16 for row in dashboard["statisticsFlows"])
     print("Dashboard nested DTO serialization, populated permissions, forwards and statistics passed")
+    # Overlapping flow uploads and scheduled statistics must not drop increments
+    # or fail with SQLITE_BUSY (also run this against the PostgreSQL baseline).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: request(path, flow), range(8)))
+    assert results == ["ok"] * 8
+    for table, row_id in (("forward", fid), ("app_user", uid), ("user_tunnel", pid)):
+        assert sql(f"SELECT in_flow || ',' || out_flow FROM {table} WHERE id={row_id}") == "50,30"
+    print("Concurrent flow uploads preserved all increments")
     today = datetime.now(ZoneInfo("Asia/Shanghai")).day
     sql(f"UPDATE app_user SET flow_reset_time={today} WHERE id={uid}")
     sql(f"UPDATE user_tunnel SET flow_reset_time={today} WHERE id={pid}")
