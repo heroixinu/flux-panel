@@ -21,6 +21,7 @@ import org.springframework.aot.hint.RuntimeHintsRegistrar;
 public final class FluxRuntimeHints implements RuntimeHintsRegistrar {
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader loader) {
+        registerWebAuthn(hints, loader);
         hints.resources().registerPattern("db/init/*.sql");
         hints.resources().registerPattern("META-INF/spring.factories");
         hints.reflection().registerType(DatabaseDefaults.class, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
@@ -54,6 +55,27 @@ public final class FluxRuntimeHints implements RuntimeHintsRegistrar {
         };
         for (Class<?> model : models) {
             registerModel(hints, model);
+        }
+    }
+
+    // Yubico uses its own Jackson ObjectMapper and annotated immutable models.
+    // Discover the pinned library's model/serializer classes at build time.
+    private static void registerWebAuthn(RuntimeHints hints, ClassLoader loader) {
+        var resolver = new org.springframework.core.io.support.PathMatchingResourcePatternResolver(loader);
+        var readers = new org.springframework.core.type.classreading.CachingMetadataReaderFactory(resolver);
+        try {
+            for (String path : List.of("com/yubico/webauthn", "com/yubico/internal/util")) {
+                for (var resource : resolver.getResources("classpath*:" + path + "/**/*.class")) {
+                    String name = readers.getMetadataReader(resource).getClassMetadata().getClassName();
+                    hints.reflection().registerType(org.springframework.aot.hint.TypeReference.of(name),
+                            MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                            MemberCategory.INVOKE_PUBLIC_METHODS,
+                            MemberCategory.INVOKE_DECLARED_METHODS,
+                            MemberCategory.DECLARED_FIELDS);
+                }
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Cannot register WebAuthn native hints", e);
         }
     }
 

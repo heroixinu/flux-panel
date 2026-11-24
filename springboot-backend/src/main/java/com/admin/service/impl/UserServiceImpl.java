@@ -108,6 +108,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Resource
     StatisticsFlowService statisticsFlowService;
 
+    @Resource
+    private PasskeyService passkeyService;
+
     // ========== 公共接口实现 ==========
 
     /**
@@ -119,6 +122,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public R login(LoginDto loginDto) {
+        synchronized (passkeyService) {
+            if (!passkeyService.passwordEnabled()) return R.err("账密登录已关闭，请使用 Passkey");
+            return loginInternal(loginDto);
+        }
+    }
+
+    private R loginInternal(LoginDto loginDto) {
 
         // 1. 验证用户凭据
         LoginValidationResult validationResult = validateUserCredentials(loginDto);
@@ -150,6 +160,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public R createUser(UserDto userDto) {
+        synchronized (passkeyService) {
+            if (!passkeyService.passwordEnabled()) return R.err("仅 Passkey 登录模式下，请先恢复账密登录再创建用户");
+            return createUserInternal(userDto);
+        }
+    }
+
+    private R createUserInternal(UserDto userDto) {
         // 1. 验证用户名唯一性
         R usernameValidationResult = validateUsernameUniqueness(userDto.getUser(), null);
         if (usernameValidationResult.getCode() != 0) {
@@ -188,6 +205,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public R updateUser(UserUpdateDto userUpdateDto) {
+        synchronized (passkeyService) {
+            if (!passkeyService.passwordEnabled() && userUpdateDto.getStatus() != null && userUpdateDto.getStatus() != 0 && !passkeyService.hasVerifiedKey(userUpdateDto.getId())) return R.err("该用户未验证 Passkey，不能启用");
+            return updateUserInternal(userUpdateDto);
+        }
+    }
+
+    private R updateUserInternal(UserUpdateDto userUpdateDto) {
         // 1. 验证用户是否存在
         if (!isUserExists(userUpdateDto.getId())) {
             return R.err(ERROR_USER_NOT_FOUND);
