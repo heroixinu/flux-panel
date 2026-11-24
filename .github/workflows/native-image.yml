@@ -152,6 +152,8 @@ jobs:
         env:
           FLUX_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}-postgresql.json postgresql
+      - name: Verify automatic MySQL and PostgreSQL archive import on startup
+        run: python scripts/test_legacy_import.py --container flux-backend:ci
       - name: Compare idle deployment memory
         run: |
           python - <<'PY'

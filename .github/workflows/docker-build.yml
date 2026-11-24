@@ -120,6 +120,20 @@ jobs:
         env:
           PGDATABASE: flux_migration
         run: python scripts/test_sqlite_migration.py
+      - name: Verify startup import parser and real backup formats
+        env:
+          PGDATABASE: flux_migration
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+        run: |
+          set -euo pipefail
+          python scripts/test_legacy_import.py
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          docker exec "$MYSQL_CONTAINER" sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; mysql -u root flux -e "ALTER TABLE vite_config DROP COLUMN unexpected_extra"'
+          docker exec "$MYSQL_CONTAINER" sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysqldump -u root flux' | gzip > "$scratch/mysql.sql.gz"
+          pg_dump -Fc | gzip > "$scratch/pg.sql.gz"
+          pg_dump --no-owner --no-privileges > "$scratch/pg-plain.sql"
+          python scripts/test_legacy_import.py --actual "$scratch/mysql.sql.gz" "$scratch/pg.sql.gz" "$scratch/pg-plain.sql"
       - name: Check scripts and Compose variants
         env:
           JWT_SECRET: integration-test-secret-at-least-32-characters
@@ -130,8 +144,8 @@ jobs:
           FRONTEND_PORT: '6366'
         run: |
           set -euo pipefail
-          for script in panel_install.sh scripts/ci_backend_container.sh scripts/ci_aot_preflight.sh; do bash -n "$script"; done
-          python -m py_compile scripts/*.py
+          for script in panel_install.sh scripts/ci_backend_container.sh scripts/ci_aot_preflight.sh springboot-backend/docker/start-backend.sh; do bash -n "$script"; done
+          python -m py_compile scripts/*.py springboot-backend/docker/import_legacy.py
           for version in 4 6; do
             docker compose -f "docker-compose-v$version.yml" config -q
             docker compose -f "docker-compose-postgresql-v$version.yml" config -q
