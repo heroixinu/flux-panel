@@ -5,14 +5,14 @@ import com.admin.entity.StatisticsFlow;
 import com.admin.entity.User;
 import com.admin.service.StatisticsFlowService;
 import com.admin.service.UserService;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.Resource;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.Resource;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -40,8 +40,8 @@ public class StatisticsFlowAsync {
         long nowMs = new Date().getTime();
         long cutoffMs = nowMs - 48L * 60 * 60 * 1000;
         statisticsFlowService.remove(
-                new LambdaQueryWrapper<StatisticsFlow>()
-                        .lt(StatisticsFlow::getCreatedTime, cutoffMs)
+                new QueryWrapper<StatisticsFlow>()
+                        .lt("created_time", cutoffMs)
         );
 
 
@@ -56,9 +56,9 @@ public class StatisticsFlowAsync {
 
             // 从数据库获取上一次记录
             StatisticsFlow lastFlowRecord = statisticsFlowService.getOne(
-                    new LambdaQueryWrapper<StatisticsFlow>()
-                            .eq(StatisticsFlow::getUserId, user.getId()) 
-                            .orderByDesc(StatisticsFlow::getId)         
+                    new QueryWrapper<StatisticsFlow>()
+                            .eq("user_id", user.getId()) 
+                            .orderByDesc("id")         
                             .last("LIMIT 1")                     
             );
 
