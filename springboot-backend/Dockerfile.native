@@ -1,0 +1,11 @@
+# Native executable must be compiled on the matching Linux architecture.
+# CI builds on Ubuntu 24.04, so the runtime glibc matches the compiler environment.
+FROM ubuntu:24.04
+WORKDIR /app
+ENV LANG=C.UTF-8 TZ=Asia/Shanghai
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata libstdc++6 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+COPY --chmod=0755 native/flux-panel /app/flux-panel
+EXPOSE 6365
+ENTRYPOINT ["/app/flux-panel"]
+CMD ["-Xms32m", "-Xmx192m", "-Duser.timezone=Asia/Shanghai", "-Dfile.encoding=UTF-8"]

@@ -1,0 +1,152 @@
+name: JVM and Native Image verification
+
+on:
+  push:
+    branches: [codex/graalvm-native]
+    tags: ['[0-9]*']
+    paths:
+      - 'springboot-backend/**'
+      - 'scripts/smoke_backend.py'
+      - 'scripts/ci_backend_container.sh'
+      - '.github/workflows/native-image.yml'
+  pull_request:
+    branches: [main, codex/postgresql-support]
+    paths:
+      - 'springboot-backend/**'
+      - 'scripts/smoke_backend.py'
+      - 'scripts/ci_backend_container.sh'
+      - '.github/workflows/native-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: native-image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: ${{ matrix.runtime }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runtime: jvm, arch: amd64, runner: ubuntu-24.04}
+          - {runtime: jvm, arch: arm64, runner: ubuntu-24.04-arm}
+          - {runtime: native, arch: amd64, runner: ubuntu-24.04}
+          - {runtime: native, arch: arm64, runner: ubuntu-24.04-arm}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: flux
+          POSTGRES_USER: flux
+          POSTGRES_PASSWORD: ci-test-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U flux -d flux"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGDATABASE: flux
+      PGUSER: flux
+      PGPASSWORD: ci-test-password
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_NAME: flux
+      DB_USER: flux
+      DB_PASSWORD: ci-test-password
+      JWT_SECRET: ci-integration-only-32-character-secret
+      LOG_DIR: /tmp/flux-logs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          python -m pip install 'websocket-client==1.8.0' 'cryptography>=44,<50'
+      - name: Install GraalVM Community JDK 21
+        if: matrix.runtime == 'native'
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: graalvm-community
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compile Native Image
+        if: matrix.runtime == 'native'
+        working-directory: springboot-backend
+        run: |
+          set -euo pipefail
+          native-image --version
+          mvn -B -ntp -Pnative -DskipTests native:compile
+          mkdir -p native
+          cp target/flux-panel native/flux-panel
+          file native/flux-panel
+          ldd native/flux-panel
+          docker build -f Dockerfile.native -t flux-backend:ci .
+      - name: Compile and build JVM Image
+        if: matrix.runtime == 'jvm'
+        run: docker build -t flux-backend:ci springboot-backend
+      - name: Test the actual container and record resource metrics
+        run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}.json
+      - name: Upload test reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ matrix.runtime }}-${{ matrix.arch }}
+          path: reports/
+          if-no-files-found: warn
+      - name: Upload verified native executable
+        if: matrix.runtime == 'native'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.arch }}
+          path: springboot-backend/native/flux-panel
+          if-no-files-found: error
+
+  publish-native:
+    # Experimental branch only, or version tag. No publication for PRs.
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/codex/graalvm-native' || startsWith(github.ref, 'refs/tags/'))
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-amd64
+          path: springboot-backend/native/amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-arm64
+          path: springboot-backend/native/arm64
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified multi-architecture Native image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/flux-panel-backend
+        run: |
+          set -euo pipefail
+          sed -i 's|COPY --chmod=0755 native/flux-panel|ARG TARGETARCH\nCOPY --chmod=0755 native/${TARGETARCH}/flux-panel|' springboot-backend/Dockerfile.native
+          tags=(-t "$IMAGE:sha-$(echo "$GITHUB_SHA" | cut -c1-7)-native")
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tags+=(-t "$IMAGE:$GITHUB_REF_NAME-native")
+          else
+            tags+=(-t "$IMAGE:graalvm-native")
+          fi
+          docker buildx build --platform linux/amd64,linux/arm64 --push \
+            "${tags[@]}" -f springboot-backend/Dockerfile.native springboot-backend
