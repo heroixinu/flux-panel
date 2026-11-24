@@ -5,6 +5,7 @@ from contextlib import closing
 from decimal import Decimal
 import gzip
 import hashlib
+from io import StringIO
 import os
 from pathlib import Path
 import re
@@ -62,11 +63,11 @@ def quote(name):
 
 def sql_statements(stream, mysql):
     """Yield complete statements; COPY data is consumed by the caller from stream."""
-    pieces, length, quote_char, block = [], 0, None, False
+    pieces, length, quote_char, block = StringIO(), 0, None, False
     escaped = False
     backslash_string = False
     for line in stream:
-        if not pieces and not block and not quote_char:
+        if not length and not block and not quote_char:
             stripped = line.strip()
             if not stripped or stripped.startswith("--") or (mysql and stripped.startswith("#")):
                 continue
@@ -82,10 +83,12 @@ def sql_statements(stream, mysql):
                     break
                 block = False
                 pos = end + 2
-                pieces.append(" ")
+                if length:
+                    pieces.write(" ")
+                    length += 1
                 continue
             if quote_char:
-                pieces.append(ch)
+                pieces.write(ch)
                 length += 1
                 if escaped:
                     escaped = False
@@ -93,7 +96,7 @@ def sql_statements(stream, mysql):
                     escaped = True
                 elif ch == quote_char:
                     if following == quote_char * 2:
-                        pieces.append(ch)
+                        pieces.write(ch)
                         length += 1
                         pos += 1
                     else:
@@ -107,25 +110,25 @@ def sql_statements(stream, mysql):
             elif ch in ("'", '"', chr(96)):
                 quote_char = ch
                 backslash_string = mysql or (ch == "'" and pos > 0 and line[pos-1] in "Ee" and (pos == 1 or not (line[pos-2].isalnum() or line[pos-2] == "_")))
-                pieces.append(ch)
+                pieces.write(ch)
                 length += 1
                 pos += 1
             elif ch == ";":
-                stmt = "".join(pieces).strip()
-                pieces, length = [], 0
+                stmt = pieces.getvalue().strip()
+                pieces, length = StringIO(), 0
                 pos += 1
                 if stmt:
                     if re.match(r"(?i)^COPY\b", stmt) and line[pos:].strip():
                         fail("COPY header must end its line")
                     yield stmt
             else:
-                if pieces or not ch.isspace():
-                    pieces.append(ch)
+                if length or not ch.isspace():
+                    pieces.write(ch)
                     length += 1
                 pos += 1
             if length > MAX_STATEMENT:
                 fail("SQL statement exceeds 32 MiB; regenerate without oversized INSERT batches")
-    if quote_char or block or "".join(pieces).strip():
+    if quote_char or block or pieces.getvalue().strip():
         fail("Incomplete SQL statement or truncated dump")
 
 
@@ -167,7 +170,7 @@ def columns_list(body, table, mysql):
 
 
 def string_value(text, pos, mysql, pg_escape=False):
-    result = []
+    result = StringIO()
     pos += 1
     escapes = {"0": "\0", "b": "\b", "n": "\n", "r": "\r", "t": "\t", "Z": "\x1a"}
     while pos < len(text):
@@ -175,10 +178,10 @@ def string_value(text, pos, mysql, pg_escape=False):
         pos += 1
         if ch == "'":
             if pos < len(text) and text[pos] == "'":
-                result.append("'")
+                result.write("'")
                 pos += 1
             else:
-                return "".join(result), pos
+                return result.getvalue(), pos
         elif ch == "\\" and (mysql or pg_escape):
             if pos >= len(text):
                 fail("Truncated escaped string")
@@ -188,9 +191,9 @@ def string_value(text, pos, mysql, pg_escape=False):
                 # pg_dump emits plain text or COPY for numeric/unicode escapes.
                 # Reject uncommon E-string escapes rather than silently alter data.
                 fail("Unsupported PostgreSQL E-string numeric escape; use COPY format")
-            result.append(("\f" if pg_escape and ch == "f" else escapes.get(ch, "\\" + ch if mysql and ch in "%_" else ch)))
+            result.write(("\f" if pg_escape and ch == "f" else escapes.get(ch, "\\" + ch if mysql and ch in "%_" else ch)))
         else:
-            result.append(ch)
+            result.write(ch)
     fail("Unterminated INSERT string")
 
 
@@ -301,9 +304,12 @@ class Importer:
         columns = self.validate_columns(table, columns)
         query = "INSERT INTO " + quote(table) + " (" + ",".join(map(quote, columns)) + ") VALUES (" + ",".join("?" for _ in columns) + ")"
         batch = []
+        id_index = columns.index("id")
         for row in rows:
             if len(row) != len(columns):
                 fail("Wrong value count in " + table)
+            if row[id_index] is None:
+                fail("NULL primary key in " + table)
             batch.append(tuple(self.convert(value, self.types[table][col]) for col, value in zip(columns, row)))
             if len(batch) >= 256:
                 self.conn.executemany(query, batch)
