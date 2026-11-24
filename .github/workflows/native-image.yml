@@ -55,7 +55,6 @@ jobs:
           --health-timeout 5s
           --health-retries 15
     env:
-      FLUX_PG_CONTAINER: ${{ job.services.postgres.id }}
       PGHOST: 127.0.0.1
       PGPORT: '5432'
       PGDATABASE: flux
@@ -150,6 +149,8 @@ jobs:
       - name: Test default SQLite container, persistence and backup recovery
         run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}-sqlite.json sqlite
       - name: Test legacy PostgreSQL container and record resource metrics
+        env:
+          FLUX_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}-postgresql.json postgresql
       - name: Compare idle deployment memory
         run: |

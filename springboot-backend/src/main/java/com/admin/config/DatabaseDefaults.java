@@ -31,7 +31,16 @@ public final class DatabaseDefaults implements EnvironmentPostProcessor, Ordered
                 else if (explicitUrl.startsWith("jdbc:postgresql:")) type = "postgresql";
                 else throw new IllegalArgumentException("Unsupported datasource JDBC URL");
             } else {
-                type = env.getProperty("DB_HOST", "").isBlank() ? "sqlite" : "postgresql";
+                if (!env.getProperty("DB_HOST", "").isBlank()) {
+                    type = "postgresql";
+                } else {
+                    for (String key : new String[]{"DB_NAME", "DB_USER", "DB_PASSWORD", "DB_PORT"}) {
+                        if (!env.getProperty(key, "").isBlank()) {
+                            throw new IllegalArgumentException("Legacy PostgreSQL settings require DB_HOST or explicit DB_TYPE");
+                        }
+                    }
+                    type = "sqlite";
+                }
             }
         }
         if (!type.equals("sqlite") && !type.equals("postgresql")) {

@@ -130,7 +130,7 @@ jobs:
           FRONTEND_PORT: '6366'
         run: |
           set -euo pipefail
-          bash -n panel_install.sh scripts/ci_backend_container.sh scripts/ci_aot_preflight.sh
+          for script in panel_install.sh scripts/ci_backend_container.sh scripts/ci_aot_preflight.sh; do bash -n "$script"; done
           python -m py_compile scripts/*.py
           for version in 4 6; do
             docker compose -f "docker-compose-v$version.yml" config -q
