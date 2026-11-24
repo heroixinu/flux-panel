@@ -75,9 +75,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
           python -m pip install 'websocket-client==1.8.0' 'cryptography>=44,<50'
-      # Use the same action and cache key as the successful standard JVM CI.
-      - name: Restore shared JVM Maven cache
-        if: matrix.runtime == 'native'
+      # Both JVM and Native use the runner's shared Maven cache.
+      - name: Set up Java 21 and restore shared Maven cache
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -127,9 +126,16 @@ jobs:
           file native/flux-panel
           ldd native/flux-panel
           docker build -f Dockerfile.native -t flux-backend:ci .
-      - name: Compile and build JVM Image
+      - name: Package JVM on the runner using the Maven cache
         if: matrix.runtime == 'jvm'
-        run: docker build -t flux-backend:ci springboot-backend
+        working-directory: springboot-backend
+        run: |
+          bash ci/mvn_retry.sh jvm-build.log -DskipTests package
+          mkdir -p jvm
+          cp target/admin-0.0.1-SNAPSHOT.jar jvm/app.jar
+      - name: Build JVM Image from prebuilt JAR (no Maven downloads)
+        if: matrix.runtime == 'jvm'
+        run: docker build --target prebuilt -t flux-backend:ci springboot-backend
       - name: Test the actual container and record resource metrics
         run: bash scripts/ci_backend_container.sh flux-backend:ci reports/${{ matrix.runtime }}-${{ matrix.arch }}.json
       - name: Upload test reports and logs
@@ -140,6 +146,7 @@ jobs:
           path: |
             reports/
             springboot-backend/native-build.log
+            springboot-backend/jvm-build.log
             springboot-backend/aot-build.log
             springboot-backend/aot-preflight.log
           if-no-files-found: warn

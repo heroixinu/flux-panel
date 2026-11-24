@@ -260,3 +260,4 @@ commit.sh
 # Local Native Image build and verification outputs
 /springboot-backend/native/
 /reports/
+/springboot-backend/jvm/

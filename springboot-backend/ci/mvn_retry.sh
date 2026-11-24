@@ -8,8 +8,10 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 : > "$log"
 
-# Keep the same repository ID for local artifact provenance; alternate URLs
-# replace the default Central repositories via an active settings profile.
+# Use the default Maven configuration first so the shared Central cache is reusable.
+# On a transient failure, use a real mirror (not a repository profile) to redirect
+# every Central request, including repositories declared by transitive POMs.
+# Both alternate Central endpoints use the same mirror ID for cache provenance.
 endpoints=(
   'https://repo.maven.apache.org/maven2'
   'https://maven-central.storage-download.googleapis.com/maven2'
@@ -20,33 +22,24 @@ transient='HTTP (Status: )?(429|502|503|504)|status code: (429|502|503|504)|stat
 for i in 0 1 2 3; do
   endpoint="${endpoints[$i]}"
   echo "Maven attempt $((i + 1))/4: $endpoint" | tee -a "$log"
-  cat > "$scratch/settings.xml" <<EOF
-<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
-  <profiles>
-    <profile>
-      <id>central-ci</id>
-      <repositories>
-        <repository>
-          <id>central</id><url>$endpoint</url>
-          <releases><enabled>true</enabled></releases>
-          <snapshots><enabled>false</enabled></snapshots>
-        </repository>
-      </repositories>
-      <pluginRepositories>
-        <pluginRepository>
-          <id>central</id><url>$endpoint</url>
-          <releases><enabled>true</enabled></releases>
-          <snapshots><enabled>false</enabled></snapshots>
-        </pluginRepository>
-      </pluginRepositories>
-    </profile>
-  </profiles>
-  <activeProfiles><activeProfile>central-ci</activeProfile></activeProfiles>
-</settings>
-EOF
   extra=()
   if (( i > 0 )); then extra+=(-U); fi
-  if mvn -B -ntp -s "$scratch/settings.xml" \
+  if (( i == 1 || i == 2 )); then
+    cat > "$scratch/settings.xml" <<EOF
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>central-ci-fallback</id>
+      <name>Central fallback</name>
+      <url>$endpoint</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
+EOF
+    extra+=(-s "$scratch/settings.xml")
+  fi
+  if mvn -B -ntp \
     -Daether.connector.connectTimeout=10000 \
     -Daether.connector.requestTimeout=45000 \
     -Daether.connector.http.retryHandler.count=1 \

@@ -35,7 +35,7 @@ native-image.yml: JVM/Native × AMD64 的实际容器测试。两种产物使用
 
 Native 编译前先以 Spring AOT 模式在独立的 flux_aot 测试数据库运行同一套业务 smoke 测试；若 Mapper 装配或 AOT 运行失败，不进入 GraalVM 编译。MapperScan 显式引用 sqlSessionTemplate，避免 Native 运行时丢失隐式依赖注入。RuntimeHints 显式注册 SqlSessionTemplate.getSqlSessionFactory 的反射调用，覆盖 MyBatis-Plus 批量写入/更新路径。WebSocketServer 使用具体类型的组件和构造器注入，WebSocketConfig 注册已初始化的 handler 实例，避免接口返回类型隐藏资源注入点。
 
-标准 JVM 测试、JVM Dockerfile、AOT 打包和 Native 编译共用 springboot-backend/ci/mvn_retry.sh。Docker 构建使用 BuildKit Maven 依赖缓存，Native CI 复用标准 JVM Maven 缓存，并在 AOT 打包成功后立即保存 Native 依赖缓存，不受后续容器测试失败影响。仅在 Central 临时限流或网络故障时切换 Google Central 镜像及官方 Central 备用地址，设置有限网络超时；不跳过编译或运行时测试。
+标准 JVM 测试、JVM Dockerfile、AOT 打包和 Native 编译共用 springboot-backend/ci/mvn_retry.sh。CI 不再在 JVM 镜像内部重新下载 Maven 依赖：标准 CI 在 PostgreSQL 测试任务中完成 package，上传已测试 JAR，镜像发布使用 Dockerfile 的 prebuilt target；独立 JVM 容器验证也先在 Runner 使用共享 Maven 缓存打包，再构建运行镜像。默认 Dockerfile target 仍支持从源码独立构建。Native CI 复用标准 JVM Maven 缓存，并在 AOT 打包成功后立即保存 Native 依赖缓存。仅在 Central 临时限流或网络故障时通过 settings.xml 的 mirrorOf=central 切换 Google Central 镜像及官方 Central 备用地址，覆盖传递依赖的 Central 请求；不跳过编译或运行时测试。
 
 R.data 的静态类型为 Object，Spring MVC AOT 无法自动推断所有响应 DTO。FluxRuntimeHints 对显式模型列表递归注册嵌套类，并由 NativeRuntimeHintsTests 检查 DTO 与实体包中的全部类型是否注册；容器测试必须验证 /api/v1/user/package 的非空嵌套数据和业务 code，而不是只检查 HTTP 200。
 

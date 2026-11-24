@@ -6,7 +6,7 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.m2/repository \
     bash ci/mvn_retry.sh /tmp/maven-build.log clean package -DskipTests
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre AS runtime-base
 WORKDIR /app
 ENV JAVA_OPTS="-Xms32m -Xmx192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
 ENV LANG=C.UTF-8
@@ -16,6 +16,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/target/*.jar /app/app.jar
 EXPOSE 6365
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
+
+# CI consumes the JAR built on the runner with the shared Maven cache.
+# BuildKit skips the source build stage for this target.
+FROM runtime-base AS prebuilt
+COPY jvm/app.jar /app/app.jar
+
+# Default target preserves standalone Docker builds from source.
+FROM runtime-base AS runtime
+COPY --from=build /app/target/admin-0.0.1-SNAPSHOT.jar /app/app.jar
