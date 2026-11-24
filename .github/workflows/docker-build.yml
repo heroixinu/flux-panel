@@ -210,6 +210,80 @@ jobs:
         run: |
           npm install --legacy-peer-deps --no-audit --no-fund
           npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-frontend-dist
+          path: vite-frontend/dist
+          if-no-files-found: error
+
+  test-passkey-browser:
+    name: Passkey browser end-to-end
+    needs: [test-postgres, test-frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DB_TYPE: sqlite
+      JWT_SECRET: ci-browser-only-32-character-secret
+      PASSKEY_ENABLED: 'true'
+      PASSKEY_ORIGIN: http://localhost:4173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-jvm-jar
+          path: browser-ci/backend
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-frontend-dist
+          path: browser-ci/dist
+      - name: Install Chromium and Playwright
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Exercise the actual production frontend and JVM backend
+        run: |
+          set -euo pipefail
+          export DB_PATH="$RUNNER_TEMP/flux-browser.db" LOG_DIR="$RUNNER_TEMP/flux-browser-logs"
+          java -jar browser-ci/backend/app.jar > browser-ci/backend.log 2>&1 &
+          pid=$!
+          cleanup() {
+            local result=$?
+            trap - EXIT
+            docker rm -f flux-browser-proxy >/dev/null 2>&1 || true
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            if [[ "$result" != 0 ]]; then cat browser-ci/backend.log >&2; fi
+            exit "$result"
+          }
+          trap cleanup EXIT
+          sed -e 's/listen 80;/listen 4173;/' -e 's/backend:6365/127.0.0.1:6365/g' vite-frontend/nginx.conf > browser-ci/nginx.conf
+          for i in $(seq 1 120); do
+            if curl -fsS --max-time 1 http://127.0.0.1:6365/flow/test | grep -qx test; then break; fi
+            kill -0 "$pid" 2>/dev/null || exit 1
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:6365/flow/test | grep -qx test
+          docker run -d --name flux-browser-proxy --network host \
+            -v "$PWD/browser-ci/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$PWD/browser-ci/dist:/usr/share/nginx/html:ro" nginx:stable-alpine
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 1 http://localhost:4173/ >/dev/null; then break; fi
+            sleep 0.5
+          done
+          python scripts/test_passkey_browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: passkey-browser-log
+          path: browser-ci/backend.log
+          if-no-files-found: warn
 
   build-gost:
     name: Build GOST for amd64
@@ -239,7 +313,7 @@ jobs:
   publish-preview-node:
     name: Publish current SQLite preview node
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/sqlite-default'
-    needs: [test-postgres, test-frontend, build-gost]
+    needs: [test-postgres, test-frontend, test-passkey-browser, build-gost]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -256,10 +330,10 @@ jobs:
 
   container-images:
     name: Build ${{ matrix.image }}
-    needs: [test-postgres, test-frontend, build-gost, publish-preview-node]
+    needs: [test-postgres, test-frontend, test-passkey-browser, build-gost, publish-preview-node]
     if: >-
       !cancelled() && needs.test-postgres.result == 'success' &&
-      needs.test-frontend.result == 'success' && needs.build-gost.result == 'success' &&
+      needs.test-frontend.result == 'success' && needs.test-passkey-browser.result == 'success' && needs.build-gost.result == 'success' &&
       (needs.publish-preview-node.result == 'success' || needs.publish-preview-node.result == 'skipped')
     runs-on: ubuntu-latest
     strategy:
@@ -282,7 +356,7 @@ jobs:
           path: springboot-backend/jvm
       - uses: docker/setup-buildx-action@v3
       - name: Login to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/codex/passkey-auth'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -312,7 +386,7 @@ jobs:
           build-args: |
             FLUX_NODE_RELEASE_REPO=${{ github.repository }}
             FLUX_NODE_RELEASE_TAG=${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'sqlite-default' }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' && github.ref != 'refs/heads/codex/passkey-auth' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
@@ -321,7 +395,7 @@ jobs:
   release:
     name: Publish release artifacts
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [test-postgres, test-frontend, build-gost, container-images]
+    needs: [test-postgres, test-frontend, test-passkey-browser, build-gost, container-images]
     runs-on: ubuntu-latest
     permissions:
       contents: write

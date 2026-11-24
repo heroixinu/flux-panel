@@ -18,8 +18,8 @@ interface Ceremony { requestId: string; options: any }
 function descriptors(items: any[]) { return items?.map(item => ({...item, id: decode(item.id)})); }
 function serialize(c: PublicKeyCredential) {
   const r = c.response;
-  const response = r instanceof AuthenticatorAttestationResponse
-    ? {clientDataJSON: encode(r.clientDataJSON), attestationObject: encode(r.attestationObject), transports: r.getTransports?.() ?? []}
+  const response = 'attestationObject' in r
+    ? {clientDataJSON: encode(r.clientDataJSON), attestationObject: encode((r as AuthenticatorAttestationResponse).attestationObject), transports: (r as AuthenticatorAttestationResponse).getTransports?.() ?? []}
     : {clientDataJSON: encode(r.clientDataJSON), authenticatorData: encode((r as AuthenticatorAssertionResponse).authenticatorData),
        signature: encode((r as AuthenticatorAssertionResponse).signature),
        userHandle: (r as AuthenticatorAssertionResponse).userHandle ? encode((r as AuthenticatorAssertionResponse).userHandle!) : null};

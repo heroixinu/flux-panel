@@ -247,3 +247,19 @@ CI 覆盖 JVM 与 Native 两种运行时、SQLite 与 PostgreSQL 两种数据库
 本项目采用 [Apache License 2.0](LICENSE)，感谢原项目 [Flux Panel](https://github.com/bqlpfy/flux-panel) 及 [go-gost/gost](https://github.com/go-gost/gost)、[go-gost/x](https://github.com/go-gost/x) 的开源贡献。
 
 请仅在合法且获得授权的网络环境中使用本项目。部署者应自行负责访问控制、凭据保护、数据备份和合规使用。本项目按许可证条款提供，不附带任何额外担保。
+
+## Passkey 登录（可选）
+
+支持基于 WebAuthn 的 Passkey 登录，可在完成用户凭证绑定和验证后关闭全局账号密码登录。默认不改变已有部署行为。
+
+在 .env 中配置：
+
+```dotenv
+PASSKEY_ENABLED=true
+PASSKEY_ORIGIN=https://panel.example.com
+PASSKEY_RECOVERY_PASSWORD_LOGIN=false
+```
+
+同时升级前后端并重建容器。登录后从「Passkey 与登录安全」注册凭证和配置登录策略。使用浏览器实际访问的 HTTPS 域名，禁止将内部后端地址当作 Origin。
+
+详细操作、应急恢复与迁移注意事项见 [Passkey 运维指南](docs/passkey-operations.md)。
